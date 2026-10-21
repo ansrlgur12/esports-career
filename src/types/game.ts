@@ -87,6 +87,11 @@ export interface TraineeEvaluationRecord {
   readinessScore?: number;
   rankBefore?: number;
   rankAfter?: number;
+  positionRankBefore?: number;
+  positionRankAfter?: number;
+  rivalName?: string;
+  rivalScore?: number;
+  rivalryMessage?: string;
   coachTrustBefore?: number;
   coachTrustAfter?: number;
   promotionChanceBefore?: string;
@@ -101,6 +106,39 @@ export interface TraineeScrimRecord {
   kills: number;
   deaths: number;
   assists: number;
+}
+
+export type TraineeRivalStyle =
+  | "PRODIGY"
+  | "STEADY"
+  | "SWINGY"
+  | "WORKHORSE"
+  | "SMART";
+
+export interface TraineeRival {
+  id: string;
+  name: string;
+  position: Position;
+  age: number;
+  ovr: number;
+  potential: number;
+  form: number;
+  coachRating: number;
+  scrimRating: number;
+  evaluationScore: number;
+  lastEvaluationGrade: ScrimGrade | null;
+  trend: -1 | 0 | 1;
+  style: TraineeRivalStyle;
+}
+
+export interface AcademyCallupCandidate {
+  id: string;
+  name: string;
+  position: Position;
+  score: number;
+  positionRank: number;
+  isPlayer: boolean;
+  reason: string;
 }
 
 export interface PlayerState {
@@ -120,6 +158,7 @@ export interface PlayerState {
   academySeason: AcademySeasonState;
   evaluationHistory: TraineeEvaluationRecord[];
   traineeScrimHistory: TraineeScrimRecord[];
+  traineeRivals: TraineeRival[];
   academyPromotionReady: boolean;
 }
 

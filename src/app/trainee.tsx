@@ -9,7 +9,13 @@ import {
   View,
 } from "react-native";
 
-import { getPromotionChanceLabel, getTraineeRank } from "../game/engine";
+import {
+  getAcademyCallupCandidates,
+  getPositionStandings,
+  getPromotionChanceLabel,
+  getTraineeRank,
+  getTraineeStandings,
+} from "../game/engine";
 import { loadGame } from "../storage/db";
 import { GameState } from "../types/game";
 
@@ -34,9 +40,13 @@ export default function TraineeScreen() {
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
+
       loadGame().then((loaded) => {
-        if (mounted && loaded) setGame(loaded);
+        if (mounted && loaded) {
+          setGame(loaded);
+        }
       });
+
       return () => {
         mounted = false;
       };
@@ -53,6 +63,9 @@ export default function TraineeScreen() {
 
   const rank = getTraineeRank(game);
   const promotion = getPromotionChanceLabel(game);
+  const standings = getTraineeStandings(game);
+  const positionStandings = getPositionStandings(game);
+  const callupCandidates = getAcademyCallupCandidates(game);
   const scrims = game.player.traineeScrimHistory ?? [];
   const recentScrims = [...scrims].reverse().slice(0, 6);
   const wins = scrims.filter((x) => x.win).length;
@@ -68,7 +81,6 @@ export default function TraineeScreen() {
     : 0;
 
   const evaluations = [...(game.player.evaluationHistory ?? [])].reverse();
-  const latest = evaluations[0];
   const nextEvaluation = nextFirstMonday(game.date);
   const dateLabel = `${String(nextEvaluation.date.getUTCMonth() + 1).padStart(2, "0")}/${String(nextEvaluation.date.getUTCDate()).padStart(2, "0")}`;
 
@@ -120,6 +132,107 @@ export default function TraineeScreen() {
             {nextEvaluation.daysAway === 0
               ? "TODAY"
               : `D-${nextEvaluation.daysAway}`}
+          </Text>
+        </View>
+
+        <Text style={styles.sectionTitle}>연습생 경쟁 순위</Text>
+        <View style={styles.card}>
+          {standings.map((row) => (
+            <View
+              key={row.id}
+              style={[
+                styles.standingRow,
+                row.isPlayer && styles.playerStanding,
+              ]}
+            >
+              <Text style={styles.standingRank}>{row.rank}</Text>
+              <View style={styles.standingNameBox}>
+                <Text
+                  style={[
+                    styles.standingName,
+                    row.isPlayer && styles.playerName,
+                  ]}
+                >
+                  {row.name}
+                </Text>
+                <Text style={styles.standingPosition}>{row.position}</Text>
+              </View>
+              <Text style={styles.standingOvr}>OVR {row.ovr}</Text>
+              <Text
+                style={
+                  row.trend > 0
+                    ? styles.up
+                    : row.trend < 0
+                      ? styles.down
+                      : styles.flat
+                }
+              >
+                {row.trend > 0 ? "▲" : row.trend < 0 ? "▼" : "—"}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>
+          {game.player.position} 포지션 경쟁
+        </Text>
+        <View style={styles.card}>
+          {positionStandings.map((row, index) => (
+            <View
+              key={row.id}
+              style={[
+                styles.standingRow,
+                row.isPlayer && styles.playerStanding,
+              ]}
+            >
+              <Text style={styles.standingRank}>{index + 1}</Text>
+              <View style={styles.standingNameBox}>
+                <Text
+                  style={[
+                    styles.standingName,
+                    row.isPlayer && styles.playerName,
+                  ]}
+                >
+                  {row.name}
+                </Text>
+                <Text style={styles.standingPosition}>
+                  {row.isPlayer ? "YOU" : "RIVAL"}
+                </Text>
+              </View>
+              <Text style={styles.standingOvr}>OVR {row.ovr}</Text>
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>아카데미 콜업 후보</Text>
+        <View style={styles.callupCard}>
+          {callupCandidates.map((candidate, index) => (
+            <View
+              key={candidate.id}
+              style={[
+                styles.callupRow,
+                candidate.isPlayer && styles.playerCallupRow,
+              ]}
+            >
+              <Text style={styles.callupRank}>{index + 1}</Text>
+              <View style={styles.callupInfo}>
+                <Text
+                  style={[
+                    styles.callupName,
+                    candidate.isPlayer && styles.playerName,
+                  ]}
+                >
+                  {candidate.name}
+                  {candidate.isPlayer ? " · YOU" : ""}
+                </Text>
+                <Text style={styles.callupReason}>{candidate.reason}</Text>
+              </View>
+              <Text style={styles.callupScore}>{candidate.score}</Text>
+            </View>
+          ))}
+          <Text style={styles.callupHint}>
+            포지션 순위와 최근 경쟁력을 바탕으로 한 현재 후보입니다. 1위가
+            곧바로 승격을 의미하지는 않습니다.
           </Text>
         </View>
 
@@ -200,6 +313,15 @@ export default function TraineeScreen() {
                   승격 가능성 {e.promotionChanceBefore} →{" "}
                   {e.promotionChanceAfter}
                 </Text>
+              )}
+              {e.positionRankBefore != null && e.positionRankAfter != null && (
+                <Text style={styles.rivalryChange}>
+                  {game.player.position} 경쟁 {e.positionRankBefore}위 →{" "}
+                  {e.positionRankAfter}위
+                </Text>
+              )}
+              {e.rivalryMessage && (
+                <Text style={styles.rivalryMessage}>{e.rivalryMessage}</Text>
               )}
             </View>
           ))
@@ -308,4 +430,74 @@ const styles = StyleSheet.create({
   detailLabel: { color: "#7F8993", fontSize: 10, fontWeight: "700" },
   detailValue: { color: "#DDE3E8", fontSize: 10, fontWeight: "900" },
   change: { color: "#AEB6BD", fontSize: 10, fontWeight: "700", marginTop: 9 },
+  standingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 46,
+    borderBottomWidth: 1,
+    borderBottomColor: "#20272D",
+  },
+  playerStanding: {
+    backgroundColor: "#182015",
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  standingRank: { color: "#FFF", fontSize: 15, fontWeight: "900", width: 28 },
+  standingNameBox: { flex: 1 },
+  standingName: { color: "#DDE3E8", fontSize: 13, fontWeight: "900" },
+  playerName: { color: LIME },
+  standingPosition: {
+    color: "#68737D",
+    fontSize: 9,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  standingOvr: {
+    color: "#AEB7BF",
+    fontSize: 11,
+    fontWeight: "900",
+    marginRight: 12,
+  },
+  up: { color: LIME, fontWeight: "900" },
+  down: { color: "#FF646D", fontWeight: "900" },
+  flat: { color: "#65707A", fontWeight: "900" },
+  callupCard: {
+    backgroundColor: "#12171B",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#2B343C",
+  },
+  callupRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 54,
+    borderBottomWidth: 1,
+    borderBottomColor: "#20272D",
+  },
+  playerCallupRow: {
+    backgroundColor: "#182015",
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  callupRank: { color: LIME, width: 28, fontSize: 16, fontWeight: "900" },
+  callupInfo: { flex: 1 },
+  callupName: { color: "#FFF", fontSize: 13, fontWeight: "900" },
+  callupReason: {
+    color: "#77818A",
+    fontSize: 9,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  callupScore: { color: "#DDE3E8", fontSize: 13, fontWeight: "900" },
+  callupHint: { color: "#66717A", fontSize: 9, lineHeight: 14, marginTop: 12 },
+  rivalryChange: { color: LIME, fontSize: 10, fontWeight: "900", marginTop: 9 },
+  rivalryMessage: {
+    color: "#DDE3E8",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 4,
+  },
 });

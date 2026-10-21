@@ -1,5 +1,6 @@
 import { ACTIONS } from "../data/actions";
 import {
+  AcademyCallupCandidate,
   ActionDef,
   AvatarState,
   DayType,
@@ -10,6 +11,7 @@ import {
   Stats,
   StatXp,
   TimeSlot,
+  TraineeRival,
   Weekday,
 } from "../types/game";
 
@@ -222,6 +224,281 @@ export function getUpcomingSchedule(state: GameState) {
   return null;
 }
 
+function createTraineeRivals(position: Position): TraineeRival[] {
+  const otherPositions: Position[] = [
+    "TOP",
+    "JUNGLE",
+    "MID",
+    "BOT",
+    "SUPPORT",
+  ].filter((p) => p !== position) as Position[];
+
+  return [
+    {
+      id: "kain",
+      name: "KAIN",
+      position,
+      age: 17,
+      ovr: 53,
+      potential: 88,
+      form: 62,
+      coachRating: 48,
+      scrimRating: 55,
+      evaluationScore: 52,
+      lastEvaluationGrade: null,
+      trend: 0,
+      style: "PRODIGY",
+    },
+    {
+      id: "rune",
+      name: "RUNE",
+      position,
+      age: 18,
+      ovr: 51,
+      potential: 80,
+      form: 58,
+      coachRating: 52,
+      scrimRating: 51,
+      evaluationScore: 50,
+      lastEvaluationGrade: null,
+      trend: 0,
+      style: "STEADY",
+    },
+    {
+      id: "nero",
+      name: "NERO",
+      position: otherPositions[0],
+      age: 17,
+      ovr: 54,
+      potential: 82,
+      form: 57,
+      coachRating: 55,
+      scrimRating: 54,
+      evaluationScore: 53,
+      lastEvaluationGrade: null,
+      trend: 0,
+      style: "WORKHORSE",
+    },
+    {
+      id: "veil",
+      name: "VEIL",
+      position: otherPositions[1],
+      age: 18,
+      ovr: 52,
+      potential: 84,
+      form: 65,
+      coachRating: 49,
+      scrimRating: 57,
+      evaluationScore: 51,
+      lastEvaluationGrade: null,
+      trend: 0,
+      style: "SWINGY",
+    },
+    {
+      id: "arc",
+      name: "ARC",
+      position: otherPositions[2],
+      age: 17,
+      ovr: 50,
+      potential: 86,
+      form: 60,
+      coachRating: 51,
+      scrimRating: 52,
+      evaluationScore: 50,
+      lastEvaluationGrade: null,
+      trend: 0,
+      style: "SMART",
+    },
+  ];
+}
+
+function rivalScore(rival: TraineeRival) {
+  return (
+    rival.evaluationScore * 0.35 +
+    rival.scrimRating * 0.25 +
+    rival.ovr * 0.25 +
+    rival.coachRating * 0.15
+  );
+}
+
+function playerCompetitionScore(state: GameState) {
+  const evals = state.player.evaluationHistory ?? [];
+  const scrims = state.player.traineeScrimHistory ?? [];
+  const evaluation = evals.length
+    ? evals[evals.length - 1].performanceScore
+    : 50;
+  const scrim = scrims.length
+    ? scrims.slice(-6).reduce((sum, x) => sum + x.performanceScore, 0) /
+      Math.min(6, scrims.length)
+    : 50;
+  const ovr = calculateOvr(state.player.stats, state.player.position);
+  return (
+    evaluation * 0.35 +
+    scrim * 0.25 +
+    ovr * 0.25 +
+    state.player.coachTrust * 0.15
+  );
+}
+
+export function getTraineeStandings(state: GameState) {
+  const rows = [
+    {
+      id: "player",
+      name: state.player.name,
+      position: state.player.position,
+      ovr: calculateOvr(state.player.stats, state.player.position),
+      score: playerCompetitionScore(state),
+      trend: 0 as -1 | 0 | 1,
+      isPlayer: true,
+    },
+    ...(state.player.traineeRivals ?? []).map((rival) => ({
+      id: rival.id,
+      name: rival.name,
+      position: rival.position,
+      ovr: rival.ovr,
+      score: rivalScore(rival),
+      trend: rival.trend,
+      isPlayer: false,
+    })),
+  ].sort((a, b) => b.score - a.score);
+
+  return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+export function getPositionStandings(state: GameState) {
+  return getTraineeStandings(state).filter(
+    (row) => row.position === state.player.position,
+  );
+}
+
+export function getAcademyCallupCandidates(
+  state: GameState,
+): AcademyCallupCandidate[] {
+  const standings = getTraineeStandings(state);
+  const positionGroups = new Map<Position, typeof standings>();
+
+  for (const row of standings) {
+    const group = positionGroups.get(row.position) ?? [];
+    group.push(row);
+    positionGroups.set(row.position, group);
+  }
+
+  const candidates: AcademyCallupCandidate[] = [];
+
+  for (const [position, rows] of positionGroups.entries()) {
+    rows.forEach((row, index) => {
+      const positionRank = index + 1;
+      if (positionRank > 2) return;
+
+      const bonus = positionRank === 1 ? 8 : 3;
+      const candidateScore = Math.round(row.score + bonus);
+      const reason =
+        positionRank === 1
+          ? `${position} 포지션 1위 · 최근 경쟁력 우수`
+          : `${position} 포지션 2위 · 콜업 경쟁권`;
+
+      candidates.push({
+        id: row.id,
+        name: row.name,
+        position,
+        score: candidateScore,
+        positionRank,
+        isPlayer: row.isPlayer,
+        reason,
+      });
+    });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
+function simulateRivals(
+  rivals: TraineeRival[],
+  seed: number,
+  monthlyEvaluation = false,
+) {
+  return rivals.map((rival, index) => {
+    const n = Math.sin((seed + index * 31) * 12.9898) * 43758.5453;
+    const roll = n - Math.floor(n);
+    const styleGrowth =
+      rival.style === "PRODIGY"
+        ? 0.55
+        : rival.style === "WORKHORSE"
+          ? 0.38
+          : rival.style === "STEADY"
+            ? 0.28
+            : 0.22;
+    const growthChance = Math.min(
+      0.8,
+      0.22 + (rival.potential - rival.ovr) / 100 + styleGrowth,
+    );
+    const ovrGain = roll < growthChance ? 1 : 0;
+    const formSwing =
+      rival.style === "SWINGY"
+        ? Math.round((roll - 0.5) * 16)
+        : Math.round((roll - 0.5) * 8);
+    const form = Math.max(30, Math.min(95, rival.form + formSwing));
+    const scrimRating = Math.max(
+      35,
+      Math.min(95, Math.round(rival.ovr * 0.55 + form * 0.45)),
+    );
+    const evaluationScore = monthlyEvaluation
+      ? Math.max(
+          35,
+          Math.min(
+            98,
+            Math.round(
+              scrimRating * 0.55 +
+                rival.coachRating * 0.2 +
+                (rival.ovr + ovrGain) * 0.25,
+            ),
+          ),
+        )
+      : rival.evaluationScore;
+    const grade: ScrimGrade =
+      evaluationScore >= 90
+        ? "S"
+        : evaluationScore >= 82
+          ? "A+"
+          : evaluationScore >= 74
+            ? "A"
+            : evaluationScore >= 66
+              ? "B+"
+              : evaluationScore >= 56
+                ? "B"
+                : "C";
+    const previous = rivalScore(rival);
+    const next: TraineeRival = {
+      ...rival,
+      ovr: rival.ovr + ovrGain,
+      form,
+      scrimRating,
+      evaluationScore,
+      lastEvaluationGrade: monthlyEvaluation
+        ? grade
+        : rival.lastEvaluationGrade,
+      coachRating: Math.max(
+        30,
+        Math.min(
+          95,
+          rival.coachRating +
+            (monthlyEvaluation
+              ? evaluationScore >= 75
+                ? 2
+                : evaluationScore < 50
+                  ? -1
+                  : 0
+              : 0),
+        ),
+      ),
+      trend: 0,
+    };
+    const diff = rivalScore(next) - previous;
+    next.trend = diff > 1 ? 1 : diff < -1 ? -1 : 0;
+    return next;
+  });
+}
+
 export function newGame(
   name: string,
   position: Position,
@@ -274,6 +551,7 @@ export function newGame(
       },
       evaluationHistory: [],
       traineeScrimHistory: [],
+      traineeRivals: createTraineeRivals(position),
       academyPromotionReady: false,
     },
   };
@@ -331,6 +609,9 @@ export function migrateGame(raw: any): GameState {
       academySeason,
       evaluationHistory: raw?.player?.evaluationHistory ?? [],
       traineeScrimHistory: raw?.player?.traineeScrimHistory ?? [],
+      traineeRivals:
+        raw?.player?.traineeRivals ??
+        createTraineeRivals(raw?.player?.position ?? "MID"),
       academyPromotionReady: raw?.player?.academyPromotionReady ?? false,
     },
   });
@@ -750,6 +1031,11 @@ export function completeTraineeScrim(
     player: {
       ...current.player,
       traineeScrimHistory,
+      traineeRivals: simulateRivals(
+        current.player.traineeRivals ?? [],
+        current.actionSeed + 73,
+        false,
+      ),
       coachTrust: Math.max(0, current.player.coachTrust + trustDelta),
       stamina: Math.max(0, current.player.stamina - 14),
       condition: Math.max(0, current.player.condition - 4),
@@ -901,17 +1187,9 @@ export function completeAcademyMatch(
 }
 
 export function getTraineeRank(state: GameState) {
-  const score =
-    state.player.coachTrust * 0.45 +
-    state.player.starterCompetition * 0.35 +
-    calculateOvr(state.player.stats, state.player.position) * 0.2;
-
-  if (score >= 78) return { rank: 1, total: 6 };
-  if (score >= 66) return { rank: 2, total: 6 };
-  if (score >= 54) return { rank: 3, total: 6 };
-  if (score >= 42) return { rank: 4, total: 6 };
-  if (score >= 30) return { rank: 5, total: 6 };
-  return { rank: 6, total: 6 };
+  const standings = getTraineeStandings(state);
+  const player = standings.find((row) => row.isPlayer);
+  return { rank: player?.rank ?? standings.length, total: standings.length };
 }
 
 export function getPromotionChanceLabel(state: GameState) {
@@ -1000,11 +1278,9 @@ export function completeTraineeEvaluation(
               ? "B"
               : "C";
 
-  const rankBefore = getTraineeRankFromValues(
-    current.player.coachTrust,
-    current.player.starterCompetition,
-    ovr,
-  );
+  const rankBefore = getTraineeRank(current).rank;
+  const positionRankBefore =
+    getPositionStandings(current).findIndex((row) => row.isPlayer) + 1;
   const previousRecent = (current.player.evaluationHistory ?? []).slice(-3);
   const previousAverage =
     previousRecent.length === 0
@@ -1047,12 +1323,40 @@ export function completeTraineeEvaluation(
     recent.reduce((sum, item) => sum + item.performanceScore, 0) /
     Math.max(1, recent.length);
 
-  // 최소 3번의 평가를 거쳐야 승격 가능.
-  const rankAfter = getTraineeRankFromValues(
-    nextCoachTrust,
-    nextStarterCompetition,
-    ovr,
+  // 경쟁자들도 같은 월간 평가 주기에 성장/평가된다.
+  const nextRivals = simulateRivals(
+    current.player.traineeRivals ?? [],
+    current.actionSeed + 191,
+    true,
   );
+  const rankState: GameState = {
+    ...current,
+    player: {
+      ...current.player,
+      coachTrust: nextCoachTrust,
+      starterCompetition: nextStarterCompetition,
+      evaluationHistory,
+      traineeRivals: nextRivals,
+    },
+  };
+
+  // 실제 전체/포지션 경쟁 순위를 다시 계산한다.
+  const rankAfter = getTraineeRank(rankState).rank;
+  const positionStandingsAfter = getPositionStandings(rankState);
+  const positionRankAfter =
+    positionStandingsAfter.findIndex((row) => row.isPlayer) + 1;
+  const closestRival =
+    positionStandingsAfter.find((row) => !row.isPlayer) ?? null;
+
+  const rivalryMessage =
+    positionRankAfter < positionRankBefore
+      ? `${closestRival?.name ?? "경쟁자"}를 제치며 ${current.player.position} 경쟁 ${positionRankAfter}위로 올라섰습니다.`
+      : positionRankAfter > positionRankBefore
+        ? `${closestRival?.name ?? "경쟁자"}에게 밀리며 ${current.player.position} 경쟁 ${positionRankAfter}위로 내려갔습니다.`
+        : positionRankAfter === 1
+          ? `${current.player.position} 연습생 경쟁 1위를 지켰습니다.`
+          : `${current.player.position} 경쟁 ${positionRankAfter}위를 유지했습니다.`;
+
   const promotionChanceAfter = promotionChanceFromScore(
     nextCoachTrust * 0.45 + nextStarterCompetition * 0.35 + recentAverage * 0.2,
   );
@@ -1061,6 +1365,11 @@ export function completeTraineeEvaluation(
   evaluationHistory[evaluationHistory.length - 1] = {
     ...evaluationHistory[evaluationHistory.length - 1],
     rankAfter,
+    positionRankBefore,
+    positionRankAfter,
+    rivalName: closestRival?.name,
+    rivalScore: closestRival ? Math.round(closestRival.score) : undefined,
+    rivalryMessage,
     coachTrustAfter: nextCoachTrust,
     promotionChanceBefore,
     promotionChanceAfter,
@@ -1070,7 +1379,8 @@ export function completeTraineeEvaluation(
     evaluationHistory.length >= 3 &&
     nextCoachTrust >= 55 &&
     nextStarterCompetition >= 55 &&
-    recentAverage >= 72;
+    recentAverage >= 72 &&
+    positionRankAfter <= 2;
 
   const [year, month, day] = current.date.split("-").map(Number);
   const nextDate = new Date(Date.UTC(year, month - 1, day));
@@ -1090,6 +1400,7 @@ export function completeTraineeEvaluation(
       coachTrust: nextCoachTrust,
       starterCompetition: nextStarterCompetition,
       evaluationHistory,
+      traineeRivals: nextRivals,
       academyPromotionReady,
       stamina: Math.max(0, current.player.stamina - 18),
       condition: Math.max(0, current.player.condition - 6),
