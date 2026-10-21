@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, View } from "react-native";
 import BottomNav from "../components/BottomNav";
+
 export default function RootLayout() {
   return (
     <View style={styles.root}>

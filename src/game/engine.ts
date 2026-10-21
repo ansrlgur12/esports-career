@@ -534,6 +534,8 @@ export function newGame(
       stress: 0,
       coachTrust: 0,
       starterCompetition: 0,
+      annualSalary: 24000000,
+      morningEventCompletedDate: null,
       seasonStats: {
         games: 0,
         kills: 0,
@@ -605,6 +607,10 @@ export function migrateGame(raw: any): GameState {
         raw?.player?.careerStage === "ACADEMY" ? "ACADEMY" : "TRAINEE",
       coachTrust: raw?.player?.coachTrust ?? 0,
       starterCompetition: raw?.player?.starterCompetition ?? 0,
+      annualSalary:
+        raw?.player?.annualSalary ??
+        (raw?.player?.careerStage === "ACADEMY" ? 36000000 : 24000000),
+      morningEventCompletedDate: raw?.player?.morningEventCompletedDate ?? null,
       seasonStats,
       academySeason,
       evaluationHistory: raw?.player?.evaluationHistory ?? [],
@@ -995,16 +1001,6 @@ export function completeTraineeScrim(
   },
 ): GameState {
   const current = refreshRecovery(state);
-  const [year, month, day] = current.date.split("-").map(Number);
-  const nextDate = new Date(Date.UTC(year, month - 1, day));
-  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-
-  const date = [
-    nextDate.getUTCFullYear(),
-    String(nextDate.getUTCMonth() + 1).padStart(2, "0"),
-    String(nextDate.getUTCDate()).padStart(2, "0"),
-  ].join("-");
-
   const traineeScrimHistory = [
     ...(current.player.traineeScrimHistory ?? []),
     {
@@ -1025,12 +1021,13 @@ export function completeTraineeScrim(
 
   return {
     ...current,
-    date,
-    slot: "MORNING",
+    date: current.date,
+    slot: "AFTERNOON",
     actionSeed: current.actionSeed + 73,
     player: {
       ...current.player,
       traineeScrimHistory,
+      morningEventCompletedDate: current.date,
       traineeRivals: simulateRivals(
         current.player.traineeRivals ?? [],
         current.actionSeed + 73,
@@ -1059,6 +1056,7 @@ export function promoteToAcademy(state: GameState): GameState {
       ...state.player,
       careerStage: "ACADEMY",
       academyPromotionReady: false,
+      annualSalary: Math.max(state.player.annualSalary ?? 24000000, 36000000),
       starterCompetition: Math.max(10, state.player.starterCompetition),
       seasonStats: { games: 0, kills: 0, deaths: 0, assists: 0 },
       academySeason: {
@@ -1136,22 +1134,14 @@ export function completeAcademyMatch(
     Math.min(10, 10 - Math.round(winRate * 6 + wins * 0.35)),
   );
 
-  const [year, month, day] = current.date.split("-").map(Number);
-  const nextDate = new Date(Date.UTC(year, month - 1, day));
-  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-  const date = [
-    nextDate.getUTCFullYear(),
-    String(nextDate.getUTCMonth() + 1).padStart(2, "0"),
-    String(nextDate.getUTCDate()).padStart(2, "0"),
-  ].join("-");
-
   return {
     ...current,
-    date,
-    slot: "MORNING",
+    date: current.date,
+    slot: "AFTERNOON",
     actionSeed: current.actionSeed + 307,
     player: {
       ...current.player,
+      morningEventCompletedDate: current.date,
       seasonStats: {
         games: previous.games + 1,
         kills: previous.kills + result.playerKills,
@@ -1336,6 +1326,7 @@ export function completeTraineeEvaluation(
       coachTrust: nextCoachTrust,
       starterCompetition: nextStarterCompetition,
       evaluationHistory,
+      morningEventCompletedDate: current.date,
       traineeRivals: nextRivals,
     },
   };
@@ -1382,18 +1373,10 @@ export function completeTraineeEvaluation(
     recentAverage >= 72 &&
     positionRankAfter <= 2;
 
-  const [year, month, day] = current.date.split("-").map(Number);
-  const nextDate = new Date(Date.UTC(year, month - 1, day));
-  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-
-  const nextYear = nextDate.getUTCFullYear();
-  const nextMonth = String(nextDate.getUTCMonth() + 1).padStart(2, "0");
-  const nextDay = String(nextDate.getUTCDate()).padStart(2, "0");
-
   return {
     ...current,
-    date: `${nextYear}-${nextMonth}-${nextDay}`,
-    slot: "MORNING",
+    date: current.date,
+    slot: "AFTERNOON",
     actionSeed: current.actionSeed + 101,
     player: {
       ...current.player,

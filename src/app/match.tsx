@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Pressable,
     SafeAreaView,
@@ -35,6 +35,7 @@ export default function MatchScreen() {
   const [game, setGame] = useState<GameState | null>(null);
   const [match, setMatch] = useState<ScrimState | null>(null);
   const [choiceMessage, setChoiceMessage] = useState<string | null>(null);
+  const commentaryScrollRef = useRef<ScrollView>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -63,6 +64,26 @@ export default function MatchScreen() {
     }, []),
   );
 
+  useEffect(() => {
+    if (!game || !match || match.finished) return;
+
+    const activeMoment = currentMoment(match);
+    if (activeMoment) return;
+
+    const timer = setTimeout(() => {
+      const next =
+        match.momentIndex >= 3 &&
+        match.commentaryIndex >= match.commentary.length - 1
+          ? finishScrim(game, match)
+          : advanceScrim(game, match);
+
+      setChoiceMessage(null);
+      setMatch(next);
+    }, 1400);
+
+    return () => clearTimeout(timer);
+  }, [game, match]);
+
   if (!game || !match) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -79,18 +100,6 @@ export default function MatchScreen() {
   const isTraineeEvaluation = matchDayType === "EVALUATION";
   const isRegularScrim = matchDayType === "SCRIM";
   const academyMatch = isAcademyOfficial ? getAcademyMatchInfo(game) : null;
-
-  async function progress() {
-    if (!game || !match || moment) return;
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    const next =
-      match.momentIndex >= 3
-        ? finishScrim(game, match)
-        : advanceScrim(game, match);
-    setChoiceMessage(null);
-    setMatch(next);
-  }
 
   async function choose(choice: ScrimChoice) {
     if (!game || !match) return;
@@ -308,8 +317,8 @@ export default function MatchScreen() {
           </Text>
           <Text style={styles.headerSub}>
             {isAcademyOfficial
-              ? "공식전 · 결과와 KDA가 시즌 기록에 반영됩니다."
-              : "해설 없이 실제 경기 흐름만 진행됩니다."}
+              ? "공식전 · 경기 흐름은 자동 중계되며 중요한 순간에 직접 판단합니다."
+              : "경기 상황은 자동으로 진행되고, 중요한 순간에만 직접 선택합니다."}
           </Text>
         </View>
 
@@ -369,20 +378,46 @@ export default function MatchScreen() {
             </>
           ) : (
             <>
-              <Text style={styles.progressTitle}>
-                {choiceMessage ?? "경기가 진행 중입니다."}
-              </Text>
-              <Text style={styles.progressDesc}>
-                {match.momentIndex >= 3
-                  ? "마지막 교전 이후 경기 결과를 확인합니다."
-                  : "다음 중요한 상황까지 경기를 진행합니다."}
-              </Text>
+              <View style={styles.liveHeader}>
+                <Text style={styles.liveLabel}>LIVE MATCH FEED</Text>
+                <Text style={styles.autoLabel}>1.4초 자동 진행</Text>
+              </View>
 
-              <Pressable style={styles.primaryButton} onPress={progress}>
-                <Text style={styles.primaryButtonText}>
-                  {match.momentIndex >= 3 ? "경기 종료" : "경기 진행"}
-                </Text>
-              </Pressable>
+              {choiceMessage && (
+                <View style={styles.choiceResultCard}>
+                  <Text style={styles.choiceResultLabel}>내 선택 결과</Text>
+                  <Text style={styles.choiceResult}>{choiceMessage}</Text>
+                </View>
+              )}
+
+              <ScrollView
+                ref={commentaryScrollRef}
+                style={styles.commentaryScroll}
+                contentContainerStyle={styles.commentaryList}
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
+                onContentSizeChange={() =>
+                  commentaryScrollRef.current?.scrollToEnd({ animated: true })
+                }
+              >
+                {(match.commentaryLog ?? []).map((item, index) => (
+                  <View
+                    key={`${item.minute}-${item.second ?? 0}-${index}`}
+                    style={styles.commentaryRow}
+                  >
+                    <Text style={styles.commentaryTime}>
+                      {String(item.minute).padStart(2, "0")}:
+                      {String(item.second ?? 0).padStart(2, "0")}
+                    </Text>
+                    <Text style={styles.commentaryLine}>{item.text}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+
+              <View style={styles.liveDots}>
+                <View style={styles.liveDot} />
+                <Text style={styles.progressDesc}>경기 자동 진행 중...</Text>
+              </View>
             </>
           )}
         </View>
@@ -626,4 +661,87 @@ const styles = StyleSheet.create({
   deltaText: { color: "#C5CDD4", fontSize: 11, fontWeight: "800" },
   positive: { color: LIME, fontWeight: "900" },
   negative: { color: "#FF6B6B" },
+  liveHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  liveLabel: {
+    color: LIME,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  autoLabel: {
+    color: "#7F8993",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  choiceResultCard: {
+    backgroundColor: "#242017",
+    borderWidth: 1,
+    borderColor: "#A97822",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  choiceResultLabel: {
+    color: "#FFCF70",
+    fontSize: 10,
+    fontWeight: "900",
+    marginBottom: 5,
+  },
+  choiceResult: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  commentaryScroll: {
+    height: 210,
+    borderRadius: 12,
+    backgroundColor: "#10151A",
+    borderWidth: 1,
+    borderColor: "#2A333C",
+  },
+  commentaryList: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  commentaryRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1E252C",
+  },
+  commentaryTime: {
+    width: 46,
+    color: "#77818B",
+    fontSize: 11,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  commentaryLine: {
+    flex: 1,
+    color: "#E8EDF2",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  liveDots: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+    gap: 7,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: LIME,
+  },
 });

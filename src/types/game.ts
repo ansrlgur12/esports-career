@@ -154,6 +154,8 @@ export interface PlayerState {
   stress: number;
   coachTrust: number;
   starterCompetition: number;
+  annualSalary: number;
+  morningEventCompletedDate: string | null;
   seasonStats: SeasonStats;
   academySeason: AcademySeasonState;
   evaluationHistory: TraineeEvaluationRecord[];

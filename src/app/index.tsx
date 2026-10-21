@@ -3,6 +3,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
+  ImageBackground,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -32,6 +33,16 @@ const slotLabel = {
   AFTERNOON: "오후",
   EVENING: "저녁",
 } as const;
+
+import { getMainBackground } from "../game/background";
+
+function formatSalary(value: number) {
+  if (value >= 100000000) {
+    const eok = value / 100000000;
+    return `₩${Number.isInteger(eok) ? eok : eok.toFixed(1)}억`;
+  }
+  return `₩${Math.round(value / 10000).toLocaleString()}만`;
+}
 
 export default function HomeScreen() {
   const [game, setGame] = useState<GameState | null>(null);
@@ -191,17 +202,31 @@ export default function HomeScreen() {
   const academySeason = game.player.academySeason;
   const academyMatch =
     game.player.careerStage === "ACADEMY" ? getAcademyMatchInfo(game) : null;
+  const morningEventPending =
+    game.slot === "MORNING" &&
+    game.player.morningEventCompletedDate !== game.date &&
+    (today.dayType === "EVALUATION" ||
+      today.dayType === "SCRIM" ||
+      today.dayType === "ACADEMY_MATCH");
+  const backgroundSource = getMainBackground(game, today.dayType);
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.screen}>
         <View style={styles.hero}>
-          <Avatar
-            avatar={game.player.avatar}
-            size={310}
-            backgroundColor="#16212D"
-            borderRadius={0}
-          />
+          <ImageBackground
+            source={backgroundSource}
+            style={styles.heroBackground}
+            imageStyle={styles.heroBackgroundImage}
+            resizeMode="cover"
+          >
+            <Avatar
+              avatar={game.player.avatar}
+              size={310}
+              backgroundColor="transparent"
+              borderRadius={0}
+            />
+          </ImageBackground>
 
           <View style={styles.dateBlock}>
             <Text style={styles.date}>
@@ -231,6 +256,9 @@ export default function HomeScreen() {
             <Text style={styles.playerMeta}>
               {game.player.age}세 · {game.player.position} ·{" "}
               {game.player.careerStage}
+            </Text>
+            <Text style={styles.salary}>
+              연봉 {formatSalary(game.player.annualSalary ?? 24000000)}
             </Text>
             <Pressable
               disabled={game.player.careerStage !== "ACADEMY"}
@@ -346,13 +374,13 @@ export default function HomeScreen() {
               <Text style={styles.scrimStartButtonText}>아카데미 합류</Text>
             </Pressable>
           </View>
-        ) : today.dayType === "EVALUATION" ? (
+        ) : morningEventPending && today.dayType === "EVALUATION" ? (
           <View style={styles.evaluationOnly}>
             <View style={styles.evaluationInfo}>
               <Text style={styles.eventLabel}>월간 연습생 평가</Text>
               <Text style={styles.evaluationTitle}>평가 스크림</Text>
               <Text style={styles.eventDate}>
-                오늘은 다른 활동 없이 평가 경기를 진행합니다.
+                오전 일정 · 평가 종료 후 오후와 저녁은 평소 일정으로 진행합니다.
               </Text>
             </View>
             <Pressable
@@ -363,13 +391,13 @@ export default function HomeScreen() {
               <Text style={styles.scrimStartButtonText}>연습경기 시작</Text>
             </Pressable>
           </View>
-        ) : today.dayType === "SCRIM" ? (
+        ) : morningEventPending && today.dayType === "SCRIM" ? (
           <View style={styles.evaluationOnly}>
             <View style={styles.evaluationInfo}>
               <Text style={styles.eventLabel}>TEAM SCRIM</Text>
               <Text style={styles.evaluationTitle}>정기 스크림</Text>
               <Text style={styles.eventDate}>
-                매주 수·토 진행 · 월간 평가와 별도 일정입니다.
+                오전 일정 · 종료 후 오후와 저녁은 평소 일정으로 진행합니다.
               </Text>
             </View>
             <Pressable
@@ -380,7 +408,7 @@ export default function HomeScreen() {
               <Text style={styles.scrimStartButtonText}>스크림 시작</Text>
             </Pressable>
           </View>
-        ) : today.dayType === "ACADEMY_MATCH" ? (
+        ) : morningEventPending && today.dayType === "ACADEMY_MATCH" ? (
           <View style={styles.evaluationOnly}>
             <View style={styles.evaluationInfo}>
               <Text style={styles.eventLabel}>
@@ -421,50 +449,47 @@ export default function HomeScreen() {
             )}
           </View>
         )}
-        {today.dayType !== "EVALUATION" &&
-          today.dayType !== "SCRIM" &&
-          today.dayType !== "ACADEMY_MATCH" &&
-          !game.player.academyPromotionReady && (
-            <View style={styles.actionGrid}>
-              {actions.map((action, index) => (
-                <Pressable
-                  key={action.id}
-                  style={styles.actionCard}
-                  disabled={isResolving}
-                  onPress={() => chooseAction(index)}
-                >
-                  <View style={styles.actionTop}>
-                    <Text style={styles.actionName} numberOfLines={1}>
-                      {action.name}
-                    </Text>
-
-                    <Text
-                      style={[
-                        styles.hp,
-                        action.stamina >= 0 && styles.hpPositive,
-                      ]}
-                    >
-                      {action.stamina >= 20
-                        ? "HP ▲▲"
-                        : action.stamina > 0
-                          ? "HP ▲"
-                          : action.stamina <= -12
-                            ? "HP ▼▼"
-                            : "HP ▼"}
-                    </Text>
-                  </View>
-
-                  <Text style={styles.actionDesc} numberOfLines={2}>
-                    {action.id === "sleep"
-                      ? "하루를 마치고 충분히 수면합니다."
-                      : action.id === "rest"
-                        ? "체력과 컨디션을 회복합니다."
-                        : "관련 능력치를 중심으로 성장합니다."}
+        {!morningEventPending && !game.player.academyPromotionReady && (
+          <View style={styles.actionGrid}>
+            {actions.map((action, index) => (
+              <Pressable
+                key={action.id}
+                style={styles.actionCard}
+                disabled={isResolving}
+                onPress={() => chooseAction(index)}
+              >
+                <View style={styles.actionTop}>
+                  <Text style={styles.actionName} numberOfLines={1}>
+                    {action.name}
                   </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
+
+                  <Text
+                    style={[
+                      styles.hp,
+                      action.stamina >= 0 && styles.hpPositive,
+                    ]}
+                  >
+                    {action.stamina >= 20
+                      ? "HP ▲▲"
+                      : action.stamina > 0
+                        ? "HP ▲"
+                        : action.stamina <= -12
+                          ? "HP ▼▼"
+                          : "HP ▼"}
+                  </Text>
+                </View>
+
+                <Text style={styles.actionDesc} numberOfLines={2}>
+                  {action.id === "sleep"
+                    ? "하루를 마치고 충분히 수면합니다."
+                    : action.id === "rest"
+                      ? "체력과 컨디션을 회복합니다."
+                      : "관련 능력치를 중심으로 성장합니다."}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -1044,5 +1069,20 @@ const styles = StyleSheet.create({
 
   recoverDisabled: {
     opacity: 0.35,
+  },
+  salary: {
+    color: "#C8FF37",
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  heroBackground: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroBackgroundImage: {
+    width: "100%",
+    height: "100%",
   },
 });
