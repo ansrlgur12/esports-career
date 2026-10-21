@@ -8,8 +8,22 @@ export type ScrimChoice = {
   risk: "LOW" | "MEDIUM" | "HIGH";
 };
 
+export type ScrimMomentKind =
+  | "LANE"
+  | "ROAM_TOP"
+  | "ROAM_BOT"
+  | "CRAB"
+  | "HERALD"
+  | "DRAGON"
+  | "BARON"
+  | "PICK"
+  | "DIVE"
+  | "INVADE"
+  | "TEAMFIGHT";
+
 export type ScrimMoment = {
   id: string;
+  kind: ScrimMomentKind;
   minute: number;
   title: string;
   situation: string;
@@ -25,6 +39,17 @@ export type ScrimState = {
   playerDeaths: number;
   playerAssists: number;
   momentIndex: number;
+  moments: ScrimMoment[];
+  endMinute: number;
+  teamDragons: number;
+  enemyDragons: number;
+  dragonSoulOwner: "TEAM" | "ENEMY" | null;
+  teamElders: number;
+  enemyElders: number;
+  teamBarons: number;
+  enemyBarons: number;
+  teamTowers: number;
+  enemyTowers: number;
   clutchSuccesses: number;
   clutchTotal: number;
   scoreBonus: number;
@@ -35,98 +60,352 @@ export type ScrimState = {
   result?: ScrimResult;
 };
 
-export const SCRIM_MOMENTS: ScrimMoment[] = [
-  {
-    id: "lane-pressure",
-    minute: 9,
-    title: "라인 주도권",
-    situation:
-      "상대가 무리하게 라인을 밀고 있습니다. 정글 위치는 확실하지 않습니다.",
-    choices: [
-      {
-        id: "punish",
-        title: "킬각을 본다",
-        description: "높은 보상, 높은 위험",
-        stats: ["killSense", "physical", "reaction"],
-        risk: "HIGH",
-      },
-      {
-        id: "freeze",
-        title: "라인을 묶는다",
-        description: "CS와 안정성을 챙긴다",
-        stats: ["laning", "cs", "decision"],
-        risk: "LOW",
-      },
-      {
-        id: "pressure",
-        title: "압박 후 시야 확보",
-        description: "주도권을 팀에 연결한다",
-        stats: ["laning", "vision", "macro"],
-        risk: "MEDIUM",
-      },
-    ],
-  },
-  {
-    id: "dragon-fight",
-    minute: 19,
-    title: "드래곤 교전",
-    situation:
-      "양 팀이 드래곤 앞에서 대치 중입니다. 먼저 움직이면 교전을 열 수 있습니다.",
-    choices: [
-      {
-        id: "engage",
-        title: "먼저 진입한다",
-        description: "한타를 직접 연다",
-        stats: ["teamfight", "physical", "decision"],
-        risk: "HIGH",
-      },
-      {
-        id: "wait",
-        title: "상대 실수를 기다린다",
-        description: "안정적인 역공을 노린다",
-        stats: ["decision", "mental", "synergy"],
-        risk: "LOW",
-      },
-      {
-        id: "flank",
-        title: "측면 각을 만든다",
-        description: "성공하면 큰 이득",
-        stats: ["movement", "vision", "killSense"],
-        risk: "MEDIUM",
-      },
-    ],
-  },
-  {
-    id: "late-clutch",
-    minute: 29,
-    title: "승부처",
-    situation:
-      "골드 차이는 크지 않습니다. 이번 교전이 경기의 흐름을 결정할 수 있습니다.",
-    choices: [
-      {
-        id: "carry",
-        title: "캐리 각을 노린다",
-        description: "개인 기량으로 승부한다",
-        stats: ["physical", "teamfight", "focus"],
-        risk: "HIGH",
-      },
-      {
-        id: "objective",
-        title: "오브젝트를 우선한다",
-        description: "운영으로 승기를 잡는다",
-        stats: ["macro", "objective", "decision"],
-        risk: "MEDIUM",
-      },
-      {
-        id: "team",
-        title: "팀 콜에 맞춘다",
-        description: "호흡과 안정성을 중시한다",
-        stats: ["calling", "synergy", "mental"],
-        risk: "LOW",
-      },
-    ],
-  },
-];
+const MOMENT_TEMPLATES: Record<
+  ScrimMomentKind,
+  Omit<ScrimMoment, "id" | "minute">[]
+> = {
+  LANE: [
+    {
+      kind: "LANE",
+      title: "라인 압박",
+      situation:
+        "상대가 체력이 빠진 채 라인에 남아 있습니다. 정글 위치는 아직 보이지 않습니다.",
+      choices: [
+        {
+          id: "lane-kill",
+          title: "킬각을 본다",
+          description: "라인에서 직접 격차를 벌린다",
+          stats: ["killSense", "physical", "reaction"],
+          risk: "HIGH",
+        },
+        {
+          id: "lane-freeze",
+          title: "웨이브를 묶는다",
+          description: "상대를 라인에 가둔다",
+          stats: ["laning", "cs", "decision"],
+          risk: "LOW",
+        },
+        {
+          id: "lane-reset",
+          title: "밀고 먼저 귀환",
+          description: "템포와 다음 턴을 챙긴다",
+          stats: ["laning", "macro", "decision"],
+          risk: "MEDIUM",
+        },
+      ],
+    },
+  ],
+  ROAM_TOP: [
+    {
+      kind: "ROAM_TOP",
+      title: "탑 로밍 기회",
+      situation:
+        "탑 라인이 길게 밀려 있고 상대 탑은 점멸이 없습니다. 지금 움직이면 수적 우위를 만들 수 있습니다.",
+      choices: [
+        {
+          id: "top-roam",
+          title: "탑으로 바로 뛴다",
+          description: "웨이브 일부를 포기하고 킬을 노린다",
+          stats: ["macro", "movement", "killSense"],
+          risk: "MEDIUM",
+        },
+        {
+          id: "top-cover",
+          title: "정글과 함께 진입",
+          description: "느리지만 성공률을 높인다",
+          stats: ["synergy", "vision", "decision"],
+          risk: "LOW",
+        },
+        {
+          id: "top-fake",
+          title: "로밍 척하고 복귀",
+          description: "상대 시야와 텔레포트를 흔든다",
+          stats: ["macro", "calling", "laning"],
+          risk: "MEDIUM",
+        },
+      ],
+    },
+  ],
+  ROAM_BOT: [
+    {
+      kind: "ROAM_BOT",
+      title: "바텀 로밍 기회",
+      situation:
+        "바텀에서 긴 교환이 이어져 양쪽 체력이 낮습니다. 먼저 합류하면 전투를 끝낼 수 있습니다.",
+      choices: [
+        {
+          id: "bot-roam",
+          title: "바텀으로 즉시 합류",
+          description: "빠른 숫자 우위로 킬을 노린다",
+          stats: ["movement", "macro", "killSense"],
+          risk: "MEDIUM",
+        },
+        {
+          id: "bot-dive",
+          title: "다이브까지 본다",
+          description: "성공하면 큰 이득, 실패하면 역전",
+          stats: ["teamfight", "decision", "physical"],
+          risk: "HIGH",
+        },
+        {
+          id: "bot-river",
+          title: "강가 시야부터 잡는다",
+          description: "안전하게 다음 드래곤 턴을 준비한다",
+          stats: ["vision", "objective", "macro"],
+          risk: "LOW",
+        },
+      ],
+    },
+  ],
+  CRAB: [
+    {
+      kind: "CRAB",
+      title: "바위게 싸움",
+      situation:
+        "강가 바위게를 두고 양 팀 정글러가 마주쳤습니다. 가까운 라인이 먼저 움직일 수 있습니다.",
+      choices: [
+        {
+          id: "crab-first",
+          title: "먼저 강가로 붙는다",
+          description: "주도권을 이용해 싸움을 연다",
+          stats: ["movement", "synergy", "reaction"],
+          risk: "MEDIUM",
+        },
+        {
+          id: "crab-zone",
+          title: "상대 합류를 막는다",
+          description: "정글러가 바위게를 먹게 공간을 만든다",
+          stats: ["laning", "decision", "teamfight"],
+          risk: "LOW",
+        },
+        {
+          id: "crab-trade",
+          title: "반대편 이득을 본다",
+          description: "싸움을 버리고 라인/정글 이득을 교환한다",
+          stats: ["macro", "cs", "decision"],
+          risk: "LOW",
+        },
+      ],
+    },
+  ],
+  HERALD: [
+    {
+      kind: "HERALD",
+      title: "전령 싸움",
+      situation:
+        "전령 체력이 빠르게 줄고 있습니다. 상대도 강가 위쪽으로 인원을 모으는 중입니다.",
+      choices: [
+        {
+          id: "herald-fight",
+          title: "전령 앞 한타",
+          description: "정면으로 지역을 장악한다",
+          stats: ["teamfight", "physical", "calling"],
+          risk: "HIGH",
+        },
+        {
+          id: "herald-steal",
+          title: "스틸 각을 만든다",
+          description: "시야 밖에서 마지막 타이밍을 노린다",
+          stats: ["objective", "reaction", "focus"],
+          risk: "HIGH",
+        },
+        {
+          id: "herald-cross",
+          title: "바텀 이득과 교환",
+          description: "전령을 주고 반대편에서 골드를 번다",
+          stats: ["macro", "decision", "cs"],
+          risk: "LOW",
+        },
+      ],
+    },
+  ],
+  DRAGON: [
+    {
+      kind: "DRAGON",
+      title: "드래곤",
+      situation:
+        "드래곤이 등장했습니다. 양 팀 모두 오브젝트 주변 시야를 두고 움직이기 시작합니다.",
+      choices: [
+        {
+          id: "dragon-start",
+          title: "먼저 드래곤을 친다",
+          description: "상대를 끌어내며 오브젝트를 압박한다",
+          stats: ["objective", "calling", "focus"],
+          risk: "MEDIUM",
+        },
+        {
+          id: "dragon-turn",
+          title: "상대 진입을 받아친다",
+          description: "드래곤보다 교전을 먼저 본다",
+          stats: ["teamfight", "decision", "synergy"],
+          risk: "MEDIUM",
+        },
+        {
+          id: "dragon-steal",
+          title: "스틸 각을 노린다",
+          description: "불리한 구도에서 한 번에 뒤집는다",
+          stats: ["objective", "reaction", "mental"],
+          risk: "HIGH",
+        },
+      ],
+    },
+  ],
+  BARON: [
+    {
+      kind: "BARON",
+      title: "바론 교전",
+      situation:
+        "바론 시야가 완전히 어두워졌습니다. 상대가 바론을 치는지, 매복 중인지 확인되지 않습니다.",
+      choices: [
+        {
+          id: "baron-check",
+          title: "시야를 뚫고 진입",
+          description: "위험을 감수하고 바론을 확인한다",
+          stats: ["vision", "mental", "reaction"],
+          risk: "HIGH",
+        },
+        {
+          id: "baron-flank",
+          title: "측면으로 크게 돈다",
+          description: "정면 대신 후방 진입각을 만든다",
+          stats: ["movement", "vision", "teamfight"],
+          risk: "MEDIUM",
+        },
+        {
+          id: "baron-wave",
+          title: "사이드 웨이브를 민다",
+          description: "상대에게 바론과 수비 중 선택을 강요한다",
+          stats: ["macro", "decision", "calling"],
+          risk: "LOW",
+        },
+      ],
+    },
+  ],
+  PICK: [
+    {
+      kind: "PICK",
+      title: "시야 없는 적 포착",
+      situation:
+        "상대 한 명이 본대와 떨어져 시야 밖 경계선에 들어왔습니다. 짧은 시간 동안만 잡을 수 있습니다.",
+      choices: [
+        {
+          id: "pick-burst",
+          title: "즉시 끊는다",
+          description: "순간 화력으로 숫자 우위를 만든다",
+          stats: ["killSense", "reaction", "focus"],
+          risk: "MEDIUM",
+        },
+        {
+          id: "pick-bait",
+          title: "더 깊게 유인한다",
+          description: "후속 인원까지 노린다",
+          stats: ["vision", "decision", "mental"],
+          risk: "HIGH",
+        },
+        {
+          id: "pick-ignore",
+          title: "위치만 확인하고 운영",
+          description: "무리하지 않고 반대편 이득을 챙긴다",
+          stats: ["macro", "calling", "decision"],
+          risk: "LOW",
+        },
+      ],
+    },
+  ],
+  DIVE: [
+    {
+      kind: "DIVE",
+      title: "포탑 다이브",
+      situation:
+        "상대가 낮은 체력으로 포탑 아래에서 웨이브를 받고 있습니다. 우리 팀 인원이 먼저 모였습니다.",
+      choices: [
+        {
+          id: "dive-go",
+          title: "바로 다이브",
+          description: "빠르게 킬과 포탑을 노린다",
+          stats: ["physical", "teamfight", "reaction"],
+          risk: "HIGH",
+        },
+        {
+          id: "dive-zone",
+          title: "퇴로만 막는다",
+          description: "상대를 쫓아내고 포탑 골드를 챙긴다",
+          stats: ["decision", "laning", "synergy"],
+          risk: "LOW",
+        },
+        {
+          id: "dive-wait",
+          title: "다음 웨이브까지 기다린다",
+          description: "확실한 타이밍을 만든다",
+          stats: ["macro", "focus", "calling"],
+          risk: "MEDIUM",
+        },
+      ],
+    },
+  ],
+  INVADE: [
+    {
+      kind: "INVADE",
+      title: "상대 정글 침투",
+      situation:
+        "상대 정글의 위치가 반대편에서 확인됐습니다. 가까운 캠프와 시야가 비어 있습니다.",
+      choices: [
+        {
+          id: "invade-deep",
+          title: "깊게 들어간다",
+          description: "캠프와 킬까지 노린다",
+          stats: ["vision", "movement", "killSense"],
+          risk: "HIGH",
+        },
+        {
+          id: "invade-ward",
+          title: "시야만 남기고 나온다",
+          description: "안전하게 다음 동선을 읽는다",
+          stats: ["vision", "macro", "decision"],
+          risk: "LOW",
+        },
+        {
+          id: "invade-trap",
+          title: "귀환 동선에 매복",
+          description: "상대 정글 복귀를 노린다",
+          stats: ["vision", "focus", "synergy"],
+          risk: "MEDIUM",
+        },
+      ],
+    },
+  ],
+  TEAMFIGHT: [
+    {
+      kind: "TEAMFIGHT",
+      title: "미드 대치",
+      situation:
+        "양 팀 다섯 명이 미드에서 마주쳤습니다. 주요 궁극기가 대부분 살아 있습니다.",
+      choices: [
+        {
+          id: "fight-engage",
+          title: "먼저 이니시",
+          description: "상대 핵심을 빠르게 노린다",
+          stats: ["teamfight", "calling", "physical"],
+          risk: "HIGH",
+        },
+        {
+          id: "fight-peel",
+          title: "상대 진입을 받아친다",
+          description: "우리 딜러를 지키며 역공한다",
+          stats: ["decision", "synergy", "mental"],
+          risk: "LOW",
+        },
+        {
+          id: "fight-side",
+          title: "측면 각을 잡는다",
+          description: "시야 밖에서 진형을 흔든다",
+          stats: ["movement", "vision", "killSense"],
+          risk: "MEDIUM",
+        },
+      ],
+    },
+  ],
+};
 
 function rng(seed: number) {
   let t = seed >>> 0;
@@ -134,6 +413,153 @@ function rng(seed: number) {
   let r = Math.imul(t ^ (t >>> 15), 1 | t);
   r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
   return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+}
+
+function cloneMoment(
+  template: Omit<ScrimMoment, "id" | "minute">,
+  minute: number,
+  serial: number,
+): ScrimMoment {
+  return {
+    ...template,
+    id: `${template.kind.toLowerCase()}-${minute}-${serial}`,
+    minute,
+    choices: template.choices.map((choice) => ({ ...choice })),
+  };
+}
+
+function momentCountForGame(seed: number) {
+  const r = rng(seed + 4401);
+  if (r < 0.12) return 0;
+  if (r < 0.3) return 1;
+  if (r < 0.55) return 2;
+  if (r < 0.77) return 3;
+  if (r < 0.91) return 4;
+  if (r < 0.98) return 5;
+  return 6;
+}
+
+function allowedKinds(minute: number): ScrimMomentKind[] {
+  if (minute <= 9) return ["LANE", "CRAB", "INVADE", "ROAM_TOP", "ROAM_BOT"];
+  if (minute <= 16)
+    return ["ROAM_TOP", "ROAM_BOT", "HERALD", "DRAGON", "DIVE", "INVADE"];
+  if (minute <= 23)
+    return [
+      "DRAGON",
+      "HERALD",
+      "ROAM_TOP",
+      "ROAM_BOT",
+      "PICK",
+      "DIVE",
+      "TEAMFIGHT",
+    ];
+  return [
+    "DRAGON",
+    "BARON",
+    "PICK",
+    "TEAMFIGHT",
+    "ROAM_TOP",
+    "ROAM_BOT",
+    "DIVE",
+  ];
+}
+
+function buildMoments(game: GameState, endMinute: number): ScrimMoment[] {
+  const count = momentCountForGame(game.actionSeed);
+  if (count === 0) return [];
+
+  // 경기마다 후보 타이밍 자체가 달라진다. 같은 9/19/29분 고정 구조를 없앤다.
+  const candidates = [
+    4, 6, 8, 10, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39,
+  ].filter((minute) => minute < endMinute - 2);
+
+  // 클러치 이벤트끼리는 최소 4분 간격을 둔다.
+  // 점수가 높은 후보부터 뽑되, 이미 선택된 이벤트와 너무 가까운 시간은 제외한다.
+  const MIN_MOMENT_GAP = 4;
+
+  const rankedCandidates = candidates
+    .map((minute, index) => ({
+      minute,
+      score: rng(game.actionSeed + 5100 + index * 97),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const selected: { minute: number; score: number }[] = [];
+
+  for (const candidate of rankedCandidates) {
+    const hasEnoughGap = selected.every(
+      (picked) => Math.abs(picked.minute - candidate.minute) >= MIN_MOMENT_GAP,
+    );
+
+    if (!hasEnoughGap) continue;
+
+    selected.push(candidate);
+    if (selected.length >= Math.min(count, candidates.length)) break;
+  }
+
+  const scored = selected.sort((a, b) => a.minute - b.minute);
+
+  let previousKind: ScrimMomentKind | null = null;
+  return scored.map(({ minute }, index) => {
+    let kinds = allowedKinds(minute);
+
+    // 드래곤은 여러 번 등장할 수 있어 영혼/장로 흐름이 생기지만,
+    // 다른 상황도 충분히 섞이도록 연속 동일 이벤트는 피한다.
+    if (previousKind) {
+      const withoutRepeat = kinds.filter((kind) => kind !== previousKind);
+      if (withoutRepeat.length) kinds = withoutRepeat;
+    }
+
+    // 6분 이후에는 드래곤 이벤트의 비중을 높인다.
+    const dragonWeight =
+      minute >= 6 &&
+      minute <= 36 &&
+      rng(game.actionSeed + 6200 + index * 131) < 0.34;
+    const kind =
+      dragonWeight && kinds.includes("DRAGON")
+        ? "DRAGON"
+        : kinds[
+            Math.floor(rng(game.actionSeed + 6300 + index * 149) * kinds.length)
+          ];
+
+    previousKind = kind;
+    const templates = MOMENT_TEMPLATES[kind];
+    const template =
+      templates[
+        Math.floor(rng(game.actionSeed + 6400 + index * 163) * templates.length)
+      ];
+    return cloneMoment(template, minute, index);
+  });
+}
+
+function dynamicMoment(state: ScrimState, base: ScrimMoment): ScrimMoment {
+  if (base.kind !== "DRAGON") return base;
+
+  if (state.dragonSoulOwner) {
+    return {
+      ...base,
+      title:
+        state.teamElders + state.enemyElders === 0
+          ? "장로 드래곤"
+          : `장로 드래곤 ${state.teamElders + state.enemyElders + 1}차`,
+      situation:
+        "드래곤 영혼은 이미 결정됐습니다. 장로 드래곤을 두고 양 팀이 모든 시야와 인원을 집중합니다.",
+    };
+  }
+
+  const total = state.teamDragons + state.enemyDragons;
+  const soulPoint =
+    state.teamDragons === 3
+      ? " 우리 팀이 먹으면 4용과 드래곤 영혼을 완성합니다."
+      : state.enemyDragons === 3
+        ? " 상대가 먹으면 4용과 드래곤 영혼을 완성합니다."
+        : "";
+
+  return {
+    ...base,
+    title: total === 0 ? "첫 드래곤" : `${total + 1}번째 드래곤`,
+    situation: `현재 드래곤 스택은 우리 ${state.teamDragons} : ${state.enemyDragons} 상대입니다.${soulPoint}`,
+  };
 }
 
 function averageStats(game: GameState, keys: StatKey[]) {
@@ -277,6 +703,10 @@ function buildCommentary(
 }
 
 export function createScrim(game: GameState): ScrimState {
+  const endMinute = 27 + Math.floor(rng(game.actionSeed + 4301) * 15); // 27~41분
+  const moments = buildMoments(game, endMinute);
+  const firstTarget = moments[0]?.minute ?? endMinute;
+
   return {
     minute: 0,
     teamKills: 0,
@@ -286,6 +716,17 @@ export function createScrim(game: GameState): ScrimState {
     playerDeaths: 0,
     playerAssists: 0,
     momentIndex: 0,
+    moments,
+    endMinute,
+    teamDragons: 0,
+    enemyDragons: 0,
+    dragonSoulOwner: null,
+    teamElders: 0,
+    enemyElders: 0,
+    teamBarons: 0,
+    enemyBarons: 0,
+    teamTowers: 0,
+    enemyTowers: 0,
     clutchSuccesses: 0,
     clutchTotal: 0,
     scoreBonus: 0,
@@ -296,35 +737,45 @@ export function createScrim(game: GameState): ScrimState {
       {
         minute: 0,
         second: 0,
-        text: "경기가 시작됩니다. 양 팀 모두 조심스럽게 라인전을 준비합니다.",
+        text:
+          moments.length === 0
+            ? "경기가 시작됩니다. 오늘 경기는 큰 변수 없이 기본기 싸움으로 흘러갈 가능성이 있습니다."
+            : "경기가 시작됩니다. 양 팀 모두 조심스럽게 라인전을 준비합니다.",
       },
     ],
   };
 }
 
 export function currentMoment(state: ScrimState) {
-  const moment = SCRIM_MOMENTS[state.momentIndex];
-  if (!moment || state.finished) return null;
-  return state.minute >= moment.minute ? moment : null;
+  const base = state.moments[state.momentIndex];
+  if (!base || state.finished) return null;
+  return state.minute >= base.minute ? dynamicMoment(state, base) : null;
+}
+
+export function hasRemainingMoments(state: ScrimState) {
+  return state.momentIndex < state.moments.length;
 }
 
 export function advanceScrim(game: GameState, state: ScrimState): ScrimState {
   if (state.finished || currentMoment(state)) return state;
 
-  const nextMoment = SCRIM_MOMENTS[state.momentIndex];
-  if (!nextMoment) return finishScrim(game, state);
+  const nextMoment = state.moments[state.momentIndex];
+  const targetMinute = nextMoment?.minute ?? state.endMinute;
 
-  // 중계 한 줄씩 자동 진행. 마지막 줄 다음에 클러치 타이밍 진입.
+  // 중계 한 줄씩 진행한다. 클러치가 없는 경기라도 종료 시점까지 자연스럽게 흘러간다.
   if (state.commentaryIndex < state.commentary.length - 1) {
     const nextIndex = state.commentaryIndex + 1;
     const progress = (nextIndex + 1) / state.commentary.length;
     const nextMinute = Math.min(
-      nextMoment.minute - 1,
-      Math.max(state.minute + 1, Math.round(nextMoment.minute * progress)),
+      Math.max(state.minute + 1, targetMinute - 1),
+      Math.max(state.minute + 1, Math.round(targetMinute * progress)),
     );
 
-    // 주변 라인/NPC 교전 결과를 조금씩 스코어에 반영한다.
-    const seed = game.actionSeed + state.momentIndex * 311 + nextIndex * 47;
+    const seed =
+      game.actionSeed +
+      state.momentIndex * 311 +
+      nextIndex * 47 +
+      state.minute * 13;
     const r = rng(seed);
     const scoreEvent = nextIndex === 3 || (nextIndex > 1 && r > 0.78);
     const scoreDiff = state.teamKills - state.enemyKills;
@@ -334,27 +785,49 @@ export function advanceScrim(game: GameState, state: ScrimState): ScrimState {
 
     return {
       ...state,
-      minute: nextMinute,
+      minute: Math.min(targetMinute - 1, nextMinute),
       commentaryIndex: nextIndex,
       commentaryLog: [
         ...(state.commentaryLog ?? []),
         {
-          minute: nextMinute,
+          minute: Math.min(targetMinute - 1, nextMinute),
           second: randomSecond(),
           text: state.commentary[nextIndex],
         },
       ],
       teamKills: state.teamKills + (ourKill ? 1 : 0),
       enemyKills: state.enemyKills + (enemyKill ? 1 : 0),
-      goldDiff: state.goldDiff + (ourKill ? 320 : enemyKill ? -320 : 0),
+      teamTowers:
+        state.teamTowers +
+        (nextMinute >= 10 && r > 0.7 && state.teamTowers < 11 && !enemyKill
+          ? 1
+          : 0),
+      enemyTowers:
+        state.enemyTowers +
+        (nextMinute >= 10 && r < 0.18 && state.enemyTowers < 11 && !ourKill
+          ? 1
+          : 0),
+      goldDiff:
+        state.goldDiff +
+        (ourKill ? 320 : enemyKill ? -320 : 0) +
+        (nextMinute >= 10 && r > 0.7 && state.teamTowers < 11 && !enemyKill
+          ? 450
+          : 0) -
+        (nextMinute >= 10 && r < 0.18 && state.enemyTowers < 11 && !ourKill
+          ? 450
+          : 0),
     };
   }
 
-  return {
-    ...state,
-    minute: nextMoment.minute,
-    commentaryLog: state.commentaryLog ?? [],
-  };
+  if (nextMoment) {
+    return {
+      ...state,
+      minute: nextMoment.minute,
+      commentaryLog: state.commentaryLog ?? [],
+    };
+  }
+
+  return finishScrim(game, { ...state, minute: state.endMinute });
 }
 
 function choiceReaction(
@@ -517,7 +990,7 @@ export function resolveScrimChoice(
 
   const success = roll <= chance;
   const highRisk = choice.risk === "HIGH";
-  const resolvedMoment = SCRIM_MOMENTS[state.momentIndex];
+  const resolvedMoment = dynamicMoment(state, state.moments[state.momentIndex]);
   const reactionLines = choiceReaction(resolvedMoment, choice, success);
   const reactionMinute = state.minute;
   const reactionSecond = randomSecond();
@@ -567,11 +1040,41 @@ export function resolveScrimChoice(
     };
   }
 
-  if (next.momentIndex >= SCRIM_MOMENTS.length) {
-    next.minute = 34;
+  // 오브젝트 결과도 경기 상태에 누적한다.
+  if (resolvedMoment.kind === "DRAGON") {
+    if (state.dragonSoulOwner) {
+      if (success) next.teamElders = state.teamElders + 1;
+      else next.enemyElders = state.enemyElders + 1;
+      next.goldDiff += success ? 1800 : -1800;
+    } else if (success) {
+      next.teamDragons = state.teamDragons + 1;
+      if (next.teamDragons >= 4) next.dragonSoulOwner = "TEAM";
+    } else {
+      next.enemyDragons = state.enemyDragons + 1;
+      if (next.enemyDragons >= 4) next.dragonSoulOwner = "ENEMY";
+    }
+  } else if (resolvedMoment.kind === "BARON") {
+    if (success) next.teamBarons = state.teamBarons + 1;
+    else next.enemyBarons = state.enemyBarons + 1;
+    next.goldDiff += success ? 1400 : -1400;
+    if (success) next.teamTowers = Math.min(11, next.teamTowers + 1);
+    else next.enemyTowers = Math.min(11, next.enemyTowers + 1);
+  } else if (
+    resolvedMoment.kind === "HERALD" ||
+    resolvedMoment.kind === "DIVE" ||
+    resolvedMoment.kind === "ROAM_TOP" ||
+    resolvedMoment.kind === "ROAM_BOT"
+  ) {
+    if (success && next.teamTowers < 11) next.teamTowers += 1;
+    if (!success && resolvedMoment.kind === "DIVE" && next.enemyTowers < 11) {
+      next.enemyTowers += 1;
+    }
+  }
+
+  if (next.momentIndex >= next.moments.length) {
     next.commentary = [
-      "마지막 교전이 끝났습니다. 양 팀이 남은 오브젝트를 정리합니다.",
-      "승부가 사실상 결정됩니다. 경기 종료를 준비합니다.",
+      "큰 교전이 정리됐습니다. 양 팀이 남은 웨이브와 시야를 정리합니다.",
+      "경기가 막바지로 향합니다. 마지막 운영에서 승패가 굳어집니다.",
     ];
     next.commentaryIndex = 0;
   } else {
@@ -585,6 +1088,37 @@ export function resolveScrimChoice(
   }
 
   return { state: next, success, chance: Math.round(chance) };
+}
+
+export function getLiveWinProbability(game: GameState, state: ScrimState) {
+  const teamPower =
+    averageStats(game, ["laning", "macro", "decision", "teamfight", "mental"]) -
+    50;
+
+  const killDiff = state.teamKills - state.enemyKills;
+  const dragonDiff = state.teamDragons - state.enemyDragons;
+  const baronDiff = state.teamBarons - state.enemyBarons;
+  const elderDiff = state.teamElders - state.enemyElders;
+  const towerDiff = state.teamTowers - state.enemyTowers;
+  const soulSwing =
+    state.dragonSoulOwner === "TEAM"
+      ? 10
+      : state.dragonSoulOwner === "ENEMY"
+        ? -10
+        : 0;
+
+  const raw =
+    50 +
+    teamPower * 0.35 +
+    killDiff * 1.7 +
+    (state.goldDiff / 1000) * 2.4 +
+    dragonDiff * 3.0 +
+    baronDiff * 5.5 +
+    elderDiff * 11 +
+    towerDiff * 2.2 +
+    soulSwing;
+
+  return Math.max(5, Math.min(95, Math.round(raw)));
 }
 
 export function finishScrim(game: GameState, state: ScrimState): ScrimState {

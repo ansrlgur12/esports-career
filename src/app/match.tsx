@@ -2,6 +2,7 @@ import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+    Animated,
     Pressable,
     SafeAreaView,
     ScrollView,
@@ -25,6 +26,7 @@ import {
     createScrim,
     currentMoment,
     finishScrim,
+    getLiveWinProbability,
     resolveScrimChoice,
     ScrimChoice,
     ScrimState,
@@ -49,6 +51,7 @@ export default function MatchScreen() {
   const [seriesPlayedSets, setSeriesPlayedSets] = useState(0);
   const [match, setMatch] = useState<ScrimState | null>(null);
   const [choiceMessage, setChoiceMessage] = useState<string | null>(null);
+  const choiceResultOpacity = useRef(new Animated.Value(1)).current;
   const commentaryScrollRef = useRef<ScrollView>(null);
 
   useFocusEffect(
@@ -116,7 +119,21 @@ export default function MatchScreen() {
           actionSeed: game.actionSeed + setNumber * 101,
           player: { ...game.player, name: `VORTEX ${game.player.position}` },
         };
-        setMatch(resolveScrimChoice(simulationGame, match, autoChoice).state);
+        const resolved = resolveScrimChoice(
+          simulationGame,
+          match,
+          autoChoice,
+        ).state;
+
+        // 벤치 관전 중에는 클러치 선택 화면을 보여주지 않는다.
+        // 자동 판단 후 바로 경기 흐름을 한 단계 더 진행한다.
+        const continued =
+          resolved.momentIndex >= resolved.moments.length &&
+          resolved.commentaryIndex >= resolved.commentary.length - 1
+            ? finishScrim(simulationGame, resolved)
+            : advanceScrim(simulationGame, resolved);
+
+        setMatch(continued);
         return;
       }
 
@@ -128,7 +145,7 @@ export default function MatchScreen() {
             player: { ...game.player, name: `VORTEX ${game.player.position}` },
           };
       const next =
-        match.momentIndex >= 3 &&
+        match.momentIndex >= match.moments.length &&
         match.commentaryIndex >= match.commentary.length - 1
           ? finishScrim(simulationGame, match)
           : advanceScrim(simulationGame, match);
@@ -139,16 +156,34 @@ export default function MatchScreen() {
     return () => clearTimeout(timer);
   }, [game, match, playerInSet, setNumber]);
 
-  // 선택 결과 메시지는 1.4초 동안 보여준 뒤 자동으로 사라진다.
+  // 내 선택 결과: 잠시 선명하게 보여준 뒤 부드럽게 fade out.
+  // 전체 노출 시간은 약 1.4초(0.9초 유지 + 0.5초 fade).
   useEffect(() => {
     if (!choiceMessage) return;
 
-    const timer = setTimeout(() => {
-      setChoiceMessage(null);
-    }, 1400);
+    choiceResultOpacity.stopAnimation();
+    choiceResultOpacity.setValue(1);
 
-    return () => clearTimeout(timer);
-  }, [choiceMessage]);
+    const animation = Animated.sequence([
+      Animated.delay(900),
+      Animated.timing(choiceResultOpacity, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]);
+
+    animation.start(({ finished }) => {
+      if (finished) {
+        setChoiceMessage(null);
+        choiceResultOpacity.setValue(1);
+      }
+    });
+
+    return () => {
+      animation.stop();
+    };
+  }, [choiceMessage, choiceResultOpacity]);
 
   if (!game || !match) {
     return (
@@ -168,6 +203,8 @@ export default function MatchScreen() {
   const secondTeamMatch = isSecondTeamOfficial
     ? getSecondTeamMatchInfo(game)
     : null;
+  const teamWinRate = getLiveWinProbability(game, match);
+  const enemyWinRate = 100 - teamWinRate;
 
   async function choose(choice: ScrimChoice) {
     if (!game || !match) return;
@@ -222,7 +259,15 @@ export default function MatchScreen() {
     const nextPlayerInSet = lineupDecision.playerInSet;
 
     setPlayerInSet(nextPlayerInSet);
-    setChoiceMessage(lineupDecision.reason);
+
+    // 세트 사이 엔트리가 실제로 바뀐 경우에만 안내한다.
+    // "선발을 유지합니다." 같은 유지 안내는 경기 흐름을 끊으므로 표시하지 않는다.
+    if (nextPlayerInSet !== playerInSet) {
+      setChoiceMessage(lineupDecision.reason);
+    } else {
+      setChoiceMessage(null);
+    }
+
     setSetNumber(nextSetNumber);
 
     const nextSetGame = nextPlayerInSet
@@ -534,6 +579,41 @@ export default function MatchScreen() {
           </View>
         </View>
 
+        <View style={styles.objectiveBoard}>
+          <View style={styles.objectiveRow}>
+            <Text style={styles.objectiveValue}>{match.teamDragons}</Text>
+            <Text style={styles.objectiveLabel}>용</Text>
+            <Text style={styles.objectiveValue}>{match.enemyDragons}</Text>
+          </View>
+          <View style={styles.objectiveRow}>
+            <Text style={styles.objectiveValue}>{match.teamBarons}</Text>
+            <Text style={styles.objectiveLabel}>바론</Text>
+            <Text style={styles.objectiveValue}>{match.enemyBarons}</Text>
+          </View>
+          <View style={styles.objectiveRow}>
+            <Text style={styles.objectiveValue}>{match.teamTowers}</Text>
+            <Text style={styles.objectiveLabel}>포탑</Text>
+            <Text style={styles.objectiveValue}>{match.enemyTowers}</Text>
+          </View>
+          {(match.teamElders > 0 || match.enemyElders > 0) && (
+            <View style={styles.objectiveRow}>
+              <Text style={styles.objectiveValue}>{match.teamElders}</Text>
+              <Text style={styles.objectiveLabel}>장로</Text>
+              <Text style={styles.objectiveValue}>{match.enemyElders}</Text>
+            </View>
+          )}
+
+          <View style={styles.winRateHeader}>
+            <Text style={styles.winRateLabel}>실시간 승률</Text>
+            <Text style={styles.winRateText}>
+              {teamWinRate}% : {enemyWinRate}%
+            </Text>
+          </View>
+          <View style={styles.winRateTrack}>
+            <View style={[styles.winRateFill, { width: `${teamWinRate}%` }]} />
+          </View>
+        </View>
+
         {!playerInSet ? (
           <View style={styles.playerLine}>
             <Text style={styles.playerLineLabel}>BENCH</Text>
@@ -549,44 +629,28 @@ export default function MatchScreen() {
         )}
 
         <View style={styles.gameArea}>
-          {moment ? (
-            !playerInSet ? (
-              <>
-                <Text style={styles.clutchLabel}>LIVE SITUATION</Text>
-                <Text style={styles.momentTitle}>{moment.title}</Text>
-                <Text style={styles.situation}>{moment.situation}</Text>
-                <View style={styles.liveDots}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.progressDesc}>
-                    선수들의 판단을 지켜보는 중...
-                  </Text>
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={styles.clutchLabel}>CLUTCH SITUATION</Text>
-                <Text style={styles.momentTitle}>{moment.title}</Text>
-                <Text style={styles.situation}>{moment.situation}</Text>
+          {playerInSet && moment ? (
+            <>
+              <Text style={styles.clutchLabel}>CLUTCH SITUATION</Text>
+              <Text style={styles.momentTitle}>{moment.title}</Text>
+              <Text style={styles.situation}>{moment.situation}</Text>
 
-                <View style={styles.choiceList}>
-                  {moment.choices.map((choice: ScrimChoice) => (
-                    <Pressable
-                      key={choice.id}
-                      style={styles.choice}
-                      onPress={() => choose(choice)}
-                    >
-                      <View style={styles.choiceTop}>
-                        <Text style={styles.choiceTitle}>{choice.title}</Text>
-                        <Text style={styles.risk}>{choice.risk}</Text>
-                      </View>
-                      <Text style={styles.choiceDesc}>
-                        {choice.description}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </>
-            )
+              <View style={styles.choiceList}>
+                {moment.choices.map((choice: ScrimChoice) => (
+                  <Pressable
+                    key={choice.id}
+                    style={styles.choice}
+                    onPress={() => choose(choice)}
+                  >
+                    <View style={styles.choiceTop}>
+                      <Text style={styles.choiceTitle}>{choice.title}</Text>
+                      <Text style={styles.risk}>{choice.risk}</Text>
+                    </View>
+                    <Text style={styles.choiceDesc}>{choice.description}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
           ) : (
             <>
               <View style={styles.liveHeader}>
@@ -594,11 +658,16 @@ export default function MatchScreen() {
                 <Text style={styles.autoLabel}>1.2초 자동 진행</Text>
               </View>
 
-              {choiceMessage && (
-                <View style={styles.choiceResultCard}>
+              {choiceMessage && playerInSet && (
+                <Animated.View
+                  style={[
+                    styles.choiceResultCard,
+                    { opacity: choiceResultOpacity },
+                  ]}
+                >
                   <Text style={styles.choiceResultLabel}>내 선택 결과</Text>
                   <Text style={styles.choiceResult}>{choiceMessage}</Text>
-                </View>
+                </Animated.View>
               )}
 
               <ScrollView
@@ -611,26 +680,31 @@ export default function MatchScreen() {
                   commentaryScrollRef.current?.scrollToEnd({ animated: true })
                 }
               >
-                {(match.commentaryLog ?? []).map((item, index) => (
-                  <View
-                    key={`${item.minute}-${item.second ?? 0}-${index}`}
-                    style={styles.commentaryRow}
-                  >
-                    <Text style={styles.commentaryTime}>
-                      {String(item.minute).padStart(2, "0")}:
-                      {String(item.second ?? 0).padStart(2, "0")}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.commentaryLine,
-                        item.text.startsWith("__CHOICE__") &&
-                          styles.choiceCommentaryLine,
-                      ]}
+                {(match.commentaryLog ?? [])
+                  .filter(
+                    (item) =>
+                      playerInSet || !item.text.startsWith("__CHOICE__"),
+                  )
+                  .map((item, index) => (
+                    <View
+                      key={`${item.minute}-${item.second ?? 0}-${index}`}
+                      style={styles.commentaryRow}
                     >
-                      {item.text.replace("__CHOICE__", "")}
-                    </Text>
-                  </View>
-                ))}
+                      <Text style={styles.commentaryTime}>
+                        {String(item.minute).padStart(2, "0")}:
+                        {String(item.second ?? 0).padStart(2, "0")}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.commentaryLine,
+                          item.text.startsWith("__CHOICE__") &&
+                            styles.choiceCommentaryLine,
+                        ]}
+                      >
+                        {item.text.replace("__CHOICE__", "")}
+                      </Text>
+                    </View>
+                  ))}
               </ScrollView>
 
               <View style={styles.liveDots}>
@@ -647,22 +721,22 @@ export default function MatchScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#0C1014" },
-  screen: { flex: 1, padding: 18 },
+  screen: { flex: 1, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { color: "#FFF", fontWeight: "900" },
 
-  header: { paddingTop: 10, paddingBottom: 20 },
+  header: { paddingTop: 2, paddingBottom: 10 },
   kicker: { color: LIME, fontSize: 10, fontWeight: "900", letterSpacing: 1.2 },
-  headerTitle: { color: "#FFF", fontSize: 28, fontWeight: "900", marginTop: 4 },
+  headerTitle: { color: "#FFF", fontSize: 25, fontWeight: "900", marginTop: 2 },
   headerSub: {
     color: "#7E8994",
     fontSize: 11,
     fontWeight: "700",
-    marginTop: 4,
+    marginTop: 2,
   },
 
   scoreboard: {
-    height: 118,
+    height: 96,
     borderRadius: 20,
     backgroundColor: "#161C22",
     borderWidth: 1,
@@ -671,6 +745,62 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-around",
     paddingHorizontal: 12,
+  },
+  objectiveBoard: {
+    marginHorizontal: 10,
+    marginTop: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: "#12151B",
+    borderWidth: 1,
+    borderColor: "#252A33",
+  },
+  objectiveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 20,
+  },
+  objectiveValue: {
+    width: 42,
+    color: "#FFF",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  objectiveLabel: {
+    color: "#8F98A8",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  winRateHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 5,
+    marginBottom: 4,
+  },
+  winRateLabel: {
+    color: "#8F98A8",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  winRateText: {
+    color: "#FFF",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  winRateTrack: {
+    height: 6,
+    borderRadius: 999,
+    overflow: "hidden",
+    backgroundColor: "#303640",
+  },
+  winRateFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: LIME,
   },
   team: { width: 100, alignItems: "center" },
   teamName: {
@@ -685,8 +815,8 @@ const styles = StyleSheet.create({
   gold: { color: "#89939D", fontSize: 9, fontWeight: "800", marginTop: 4 },
 
   playerLine: {
-    marginTop: 10,
-    height: 48,
+    marginTop: 7,
+    height: 40,
     borderRadius: 14,
     backgroundColor: "#13181D",
     flexDirection: "row",
@@ -699,12 +829,13 @@ const styles = StyleSheet.create({
 
   gameArea: {
     flex: 1,
-    marginTop: 14,
-    borderRadius: 20,
+    marginTop: 8,
+    borderRadius: 18,
     backgroundColor: "#151A20",
     borderWidth: 1,
     borderColor: "#252D35",
-    padding: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     justifyContent: "center",
   },
   clutchLabel: {
@@ -713,21 +844,22 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1,
   },
-  momentTitle: { color: "#FFF", fontSize: 24, fontWeight: "900", marginTop: 5 },
+  momentTitle: { color: "#FFF", fontSize: 21, fontWeight: "900", marginTop: 3 },
   situation: {
     color: "#AAB2BA",
     fontSize: 13,
-    lineHeight: 19,
+    lineHeight: 17,
     fontWeight: "700",
-    marginTop: 8,
+    marginTop: 5,
   },
-  choiceList: { marginTop: 20, gap: 10 },
+  choiceList: { marginTop: 12, gap: 7 },
   choice: {
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "#303943",
     backgroundColor: "#1B2229",
-    padding: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   choiceTop: {
     flexDirection: "row",

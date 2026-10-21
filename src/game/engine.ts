@@ -371,7 +371,15 @@ export function getUpcomingSchedule(state: GameState) {
 
   const [year, month, day] = state.date.split("-").map(Number);
   const base = new Date(Date.UTC(year, month - 1, day));
-  for (let daysAway = 0; daysAway <= 28; daysAway++) {
+
+  // 오늘 오전의 공식 이벤트를 이미 끝냈다면 오늘 일정은 더 이상
+  // "다가오는 이벤트"가 아니다. 다음 날부터 다시 탐색해야 한다.
+  // 그렇지 않으면 시즌 round만 먼저 증가해서 제목은 다음 경기로 바뀌는데
+  // 날짜/daysAway는 오늘(D-0)로 남는 현상이 발생한다.
+  const searchStart =
+    state.player.morningEventCompletedDate === state.date ? 1 : 0;
+
+  for (let daysAway = searchStart; daysAway <= 28; daysAway++) {
     const target = new Date(base);
     target.setUTCDate(base.getUTCDate() + daysAway);
     const targetDate = [
