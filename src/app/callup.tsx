@@ -79,7 +79,7 @@ export default function MatchScreen() {
 
       setChoiceMessage(null);
       setMatch(next);
-    }, 1400);
+    }, 800);
 
     return () => clearTimeout(timer);
   }, [game, match]);
@@ -382,7 +382,6 @@ export default function MatchScreen() {
             <>
               <View style={styles.liveHeader}>
                 <Text style={styles.liveLabel}>LIVE MATCH FEED</Text>
-                <Text style={styles.autoLabel}>1.4초 자동 진행</Text>
               </View>
 
               {choiceMessage && (

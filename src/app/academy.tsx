@@ -61,6 +61,192 @@ export default function AcademyScreen() {
     );
   }
 
+  if (game.player.careerStage === "SECOND_TEAM") {
+    const season = game.player.secondTeamSeason;
+    const stats = game.player.seasonStats;
+    const appearances = (season.matchHistory ?? []).filter(
+      (match) => match.playerParticipated,
+    ).length;
+    const benchGames = (season.matchHistory ?? []).filter(
+      (match) => match.playerParticipated === false,
+    ).length;
+    const kda =
+      stats.games === 0
+        ? 0
+        : stats.deaths === 0
+          ? stats.kills + stats.assists
+          : (stats.kills + stats.assists) / stats.deaths;
+    const competitionLabel =
+      game.player.starterCompetition >= 70
+        ? "주전 경쟁 우세"
+        : game.player.starterCompetition >= 50
+          ? "주전 경쟁 중"
+          : game.player.starterCompetition >= 30
+            ? "교체 출전 경쟁"
+            : "벤치 경쟁";
+    const firstTeamLabel =
+      season.firstTeamInterest >= 75
+        ? "매우 높음"
+        : season.firstTeamInterest >= 55
+          ? "높음"
+          : season.firstTeamInterest >= 35
+            ? "관심 있음"
+            : "관찰 단계";
+
+    return (
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.header}>
+            <Pressable onPress={() => router.back()} hitSlop={10}>
+              <Text style={styles.back}>‹</Text>
+            </Pressable>
+            <View>
+              <Text style={styles.kicker}>SECOND TEAM CAREER</Text>
+              <Text style={styles.title}>
+                {game.player.name} · {game.player.position}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.hero}>
+            <View>
+              <Text style={styles.heroLabel}>현재 소속</Text>
+              <Text style={styles.secondTeamHero}>VORTEX 2군</Text>
+            </View>
+            <View style={styles.promotionBox}>
+              <Text style={styles.heroLabel}>현재 입지</Text>
+              <Text style={styles.promotion}>{competitionLabel}</Text>
+            </View>
+          </View>
+
+          <View style={styles.metricRow}>
+            <View style={styles.metric}>
+              <Text style={styles.metricLabel}>코치 신뢰</Text>
+              <Text style={styles.metricValue}>{game.player.coachTrust}</Text>
+            </View>
+            <View style={styles.metric}>
+              <Text style={styles.metricLabel}>주전 경쟁</Text>
+              <Text style={styles.metricValue}>
+                {game.player.starterCompetition}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>2군 시즌 현황</Text>
+          <View style={styles.card}>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>팀 성적</Text>
+              <Text style={styles.detailValue}>
+                {season.wins}승 {season.losses}패 · {season.teamRank}위
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>현재 라운드</Text>
+              <Text style={styles.detailValue}>{season.round}R</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>출전 / 벤치</Text>
+              <Text style={styles.detailValue}>
+                {appearances} / {benchGames}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>개인 출전 기록</Text>
+          <View style={styles.summary}>
+            <Text style={styles.summaryMain}>
+              {stats.games}경기 · KDA {kda.toFixed(2)}
+            </Text>
+            <Text style={styles.summaryText}>
+              {stats.kills} / {stats.deaths} / {stats.assists}
+            </Text>
+          </View>
+
+          <Text style={styles.sectionTitle}>1군 콜업 현황</Text>
+          <View style={styles.callupCard}>
+            <View style={styles.row}>
+              <View>
+                <Text style={styles.callupName}>1군 관심도</Text>
+                <Text style={styles.callupReason}>
+                  2군 출전 성적과 코치 평가에 따라 변화합니다.
+                </Text>
+              </View>
+              <Text style={styles.callupScore}>{season.firstTeamInterest}</Text>
+            </View>
+            <Text style={styles.firstTeamStatus}>{firstTeamLabel}</Text>
+          </View>
+
+          <Text style={styles.sectionTitle}>최근 2군 경기</Text>
+          {(season.matchHistory ?? []).length === 0 ? (
+            <View style={styles.card}>
+              <Text style={styles.muted}>아직 2군 공식전 기록이 없습니다.</Text>
+            </View>
+          ) : (
+            [...season.matchHistory]
+              .reverse()
+              .slice(0, 8)
+              .map((match) => (
+                <View
+                  key={`${match.round}-${match.date}-${match.opponentId}`}
+                  style={styles.card}
+                >
+                  <View style={styles.row}>
+                    <Text style={styles.cardTitle}>
+                      {match.round}R · {match.opponentName}
+                    </Text>
+                    <Text style={match.win ? styles.win : styles.loss}>
+                      {match.win ? "승" : "패"}
+                    </Text>
+                  </View>
+                  <Text style={styles.cardText}>
+                    {match.playerParticipated
+                      ? `출전 · ${match.kills}/${match.deaths}/${match.assists} · 퍼포먼스 ${match.performanceScore}`
+                      : "벤치 · 미출전"}
+                  </Text>
+                </View>
+              ))
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (game.player.careerStage === "FIRST_TEAM") {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.header}>
+            <Pressable onPress={() => router.back()} hitSlop={10}>
+              <Text style={styles.back}>‹</Text>
+            </Pressable>
+            <View>
+              <Text style={styles.kicker}>FIRST TEAM CAREER</Text>
+              <Text style={styles.title}>
+                {game.player.name} · {game.player.position}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.hero}>
+            <View>
+              <Text style={styles.heroLabel}>현재 소속</Text>
+              <Text style={styles.secondTeamHero}>VORTEX 1군</Text>
+            </View>
+            <View style={styles.promotionBox}>
+              <Text style={styles.heroLabel}>현재 입지</Text>
+              <Text style={styles.promotion}>1군 로스터</Text>
+            </View>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>1군 커리어</Text>
+            <Text style={styles.cardText}>
+              1군 주전 경쟁과 계약 시스템은 이후 1군 시스템에서 확장됩니다.
+            </Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   const rank = getAcademyRank(game);
   const promotion = getPromotionChanceLabel(game);
   const standings = getAcademyStandings(game);
@@ -92,7 +278,7 @@ export default function AcademyScreen() {
             <Text style={styles.back}>‹</Text>
           </Pressable>
           <View>
-            <Text style={styles.kicker}>ACADEMY CENTER</Text>
+            <Text style={styles.kicker}>ACADEMY CAREER</Text>
             <Text style={styles.title}>
               {game.player.name} · {game.player.position}
             </Text>
@@ -107,7 +293,7 @@ export default function AcademyScreen() {
             </Text>
           </View>
           <View style={styles.promotionBox}>
-            <Text style={styles.heroLabel}>아카데미 승격</Text>
+            <Text style={styles.heroLabel}>2군 콜업 가능성</Text>
             <Text style={styles.promotion}>{promotion}</Text>
           </View>
         </View>
@@ -232,7 +418,7 @@ export default function AcademyScreen() {
           ))}
           <Text style={styles.callupHint}>
             포지션 순위와 최근 경쟁력을 바탕으로 한 현재 후보입니다. 1위가
-            곧바로 승격을 의미하지는 않습니다.
+            곧바로 2군 콜업을 의미하지는 않습니다.
           </Text>
         </View>
 
@@ -310,7 +496,7 @@ export default function AcademyScreen() {
               )}
               {e.promotionChanceAfter && (
                 <Text style={styles.change}>
-                  승격 가능성 {e.promotionChanceBefore} →{" "}
+                  2군 콜업 가능성 {e.promotionChanceBefore} →{" "}
                   {e.promotionChanceAfter}
                 </Text>
               )}
@@ -357,6 +543,18 @@ const styles = StyleSheet.create({
   rank: { color: "#FFF", fontSize: 30, fontWeight: "900", marginTop: 3 },
   promotionBox: { alignItems: "flex-end" },
   promotion: { color: LIME, fontSize: 22, fontWeight: "900", marginTop: 5 },
+  secondTeamHero: {
+    color: "#FFF",
+    fontSize: 24,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+  firstTeamStatus: {
+    color: LIME,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 14,
+  },
   metricRow: { flexDirection: "row", gap: 10, marginTop: 10 },
   metric: {
     flex: 1,

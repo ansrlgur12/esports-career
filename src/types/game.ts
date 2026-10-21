@@ -8,6 +8,7 @@ export type DayType =
   | "EVALUATION"
   | "SCRIM"
   | "SECOND_TEAM_MATCH"
+  | "FIRST_TEAM_MATCH"
   | "REST";
 
 export type StatKey =
@@ -64,12 +65,21 @@ export interface SecondTeamMatchRecord {
   deaths: number;
   assists: number;
   performanceScore: number;
+  playerParticipated?: boolean;
 }
 
+export type SplitName = "SPRING" | "SUMMER";
+export type SplitPhase = "REGULAR" | "PLAYOFFS" | "OFFSEASON";
+
 export interface SecondTeamSeasonState {
+  year?: number;
+  split?: SplitName;
+  phase?: SplitPhase;
   round: number;
   wins: number;
   losses: number;
+  setWins?: number;
+  setLosses?: number;
   teamRank: number;
   teamPower: number;
   firstTeamInterest: number;

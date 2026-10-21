@@ -6,13 +6,18 @@ const LIME = "#C8FF37";
 type NavItem = {
   label: string;
   icon: string;
-  path: "/" | "/home" | "/player" | "/academy";
+  path: "/" | "/home" | "/rankings" | "/academy";
   active: (pathname: string) => boolean;
 };
 
 const ITEMS: NavItem[] = [
   { label: "홈", icon: "⌂", path: "/home", active: (p) => p === "/home" },
-  { label: "OVR", icon: "◎", path: "/player", active: (p) => p === "/player" },
+  {
+    label: "리그",
+    icon: "▥",
+    path: "/rankings",
+    active: (p) => p === "/rankings",
+  },
   {
     label: "커리어",
     icon: "▤",

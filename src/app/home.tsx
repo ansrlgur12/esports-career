@@ -16,8 +16,10 @@ import {
     applyAction,
     calculateOvr,
     generateActions,
+    getCareerScheduleEntry,
     getDayLabel,
     getSecondTeamMatchInfo,
+    getSecondTeamMatchRole,
     getUpcomingSchedule,
     recoveryRemaining,
     statLabels,
@@ -145,6 +147,11 @@ export default function HomeScreen() {
     await saveGame(next);
   }
 
+  function watchSecondTeamMatch() {
+    if (!game || isResolving) return;
+    router.push({ pathname: "/match", params: { mode: "spectate" } });
+  }
+
   if (!game) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -166,6 +173,10 @@ export default function HomeScreen() {
   const actions = generateActions(game);
   const remaining = recoveryRemaining(game);
   const today = getDayLabel(game);
+  const todaySchedule = getCareerScheduleEntry(
+    game.date,
+    game.player.careerStage,
+  );
   const upcoming = getUpcomingSchedule(game);
   const seasonStats = game.player.seasonStats ?? {
     games: 0,
@@ -182,12 +193,17 @@ export default function HomeScreen() {
     game.player.careerStage === "SECOND_TEAM"
       ? getSecondTeamMatchInfo(game)
       : null;
+  const secondTeamRole =
+    game.player.careerStage === "SECOND_TEAM"
+      ? getSecondTeamMatchRole(game)
+      : null;
   const morningEventPending =
     game.slot === "MORNING" &&
     game.player.morningEventCompletedDate !== game.date &&
     (today.dayType === "EVALUATION" ||
       today.dayType === "SCRIM" ||
-      today.dayType === "SECOND_TEAM_MATCH");
+      today.dayType === "SECOND_TEAM_MATCH" ||
+      today.dayType === "FIRST_TEAM_MATCH");
   const backgroundSource = getMainBackground(game, today.dayType);
 
   return (
@@ -271,6 +287,11 @@ export default function HomeScreen() {
           {actionResult ? (
             <View style={styles.resultArea}>
               <Text style={styles.resultTitle}>{actionResult.name}</Text>
+              {actionResult.description ? (
+                <Text style={styles.resultDescription}>
+                  {actionResult.description}
+                </Text>
+              ) : null}
 
               <View style={styles.resultStats}>
                 {actionResult.stats.map((result: any) => (
@@ -401,16 +422,34 @@ export default function HomeScreen() {
               </Text>
               <Text style={styles.eventDate}>
                 전력 {secondTeamMatch?.teamPower} vs{" "}
-                {secondTeamMatch?.opponent.power} · 공식전 기록 반영
+                {secondTeamMatch?.opponent.power}
               </Text>
+              <Text style={styles.eventDate}>
+                {secondTeamRole?.role === "PLAY"
+                  ? `출전 명단 포함 · 출전 가능성 ${secondTeamRole.appearanceChance}%`
+                  : `벤치 대기 · 출전 가능성 ${secondTeamRole?.appearanceChance ?? 0}%`}
+              </Text>
+              <Text style={styles.eventDate}>{secondTeamRole?.reason}</Text>
             </View>
-            <Pressable
-              style={styles.scrimStartButton}
-              disabled={isResolving}
-              onPress={() => router.push("/match")}
-            >
-              <Text style={styles.scrimStartButtonText}>경기 시작</Text>
-            </Pressable>
+            {secondTeamRole?.role === "PLAY" ? (
+              <Pressable
+                style={styles.scrimStartButton}
+                disabled={isResolving}
+                onPress={() => router.push("/match")}
+              >
+                <Text style={styles.scrimStartButtonText}>출전하기</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={styles.scrimStartButton}
+                disabled={isResolving}
+                onPress={watchSecondTeamMatch}
+              >
+                <Text style={styles.scrimStartButtonText}>
+                  벤치에서 경기 지켜보기
+                </Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           <View style={styles.actionHeader}>
@@ -952,6 +991,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
     marginBottom: 6,
+  },
+
+  resultDescription: {
+    color: "#AAB4BC",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 6,
+    marginBottom: 4,
   },
 
   resultStats: {

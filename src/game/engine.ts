@@ -108,27 +108,203 @@ export function getWeekday(date: string): Weekday {
  * 토: 평가일 (향후 평가전/코치 평가 시스템 연결)
  * 일: 회복일
  */
+export type LeagueLevel = "SECOND_TEAM" | "FIRST_TEAM";
+export type ScheduleKind =
+  | "REST"
+  | "TRAINING"
+  | "SCRIM"
+  | "EVALUATION"
+  | "REGULAR_MATCH"
+  | "PLAYOFF_MATCH";
+
+export interface CareerScheduleEntry {
+  date: string;
+  weekday: Weekday;
+  kind: ScheduleKind;
+  title: string;
+  split: "SPRING" | "SUMMER";
+  phase: "REGULAR" | "PLAYOFFS" | "OFFSEASON";
+  round?: number;
+  opponent?: string;
+  bestOf?: 3 | 5;
+}
+
+const VORTEX_REGULAR_OPPONENTS = [
+  "NOVA",
+  "RAVEN",
+  "APEX",
+  "ZERO",
+  "ORBIT",
+  "TITAN",
+  "PULSE",
+  "ECLIPSE",
+  "PHANTOM",
+  "PHANTOM",
+  "ECLIPSE",
+  "PULSE",
+  "TITAN",
+  "ORBIT",
+  "ZERO",
+  "APEX",
+  "RAVEN",
+  "NOVA",
+] as const;
+
+function parseUtcDate(date: string) {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+function dateKeyUtc(value: Date) {
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
+}
+function addDaysKey(date: string, days: number) {
+  const d = parseUtcDate(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return dateKeyUtc(d);
+}
+function splitForDate(date: string): "SPRING" | "SUMMER" {
+  return Number(date.slice(5, 7)) <= 6 ? "SPRING" : "SUMMER";
+}
+function splitStart(year: number, split: "SPRING" | "SUMMER") {
+  // 월요일은 리그 공통 휴식일. 첫 공식전은 다음 화요일부터 시작한다.
+  const seed = new Date(Date.UTC(year, split === "SPRING" ? 0 : 6, 5));
+  while (seed.getUTCDay() !== 2) seed.setUTCDate(seed.getUTCDate() + 1);
+  return dateKeyUtc(seed);
+}
+function regularMatchDates(year: number, split: "SPRING" | "SUMMER") {
+  const dates: string[] = [];
+  let cursor = parseUtcDate(splitStart(year, split));
+  // VORTEX는 화/목/토에 경기. 리그 전체는 화~일 다른 대진이 계속 진행된다.
+  while (dates.length < 18) {
+    const wd = cursor.getUTCDay();
+    if (wd === 2 || wd === 4 || wd === 6) dates.push(dateKeyUtc(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+export function getLeagueCalendarInfo(date: string) {
+  const year = Number(date.slice(0, 4));
+  const split = splitForDate(date);
+  const dates = regularMatchDates(year, split);
+  const regularIndex = dates.indexOf(date);
+  const regularEnd = dates[17];
+  const playoffStart = addDaysKey(regularEnd, 4);
+  const playoffDates = [
+    playoffStart,
+    addDaysKey(playoffStart, 3),
+    addDaysKey(playoffStart, 6),
+    addDaysKey(playoffStart, 10),
+  ];
+  let phase: "REGULAR" | "PLAYOFFS" | "OFFSEASON" = "OFFSEASON";
+  if (date >= dates[0] && date <= regularEnd) phase = "REGULAR";
+  if (playoffDates.includes(date)) phase = "PLAYOFFS";
+  return {
+    year,
+    split,
+    phase,
+    regularIndex,
+    regularDates: dates,
+    playoffDates,
+  };
+}
+
+export function getCareerScheduleEntry(
+  date: string,
+  careerStage: GameState["player"]["careerStage"],
+): CareerScheduleEntry {
+  const weekday = getWeekday(date);
+  const info = getLeagueCalendarInfo(date);
+  const base = { date, weekday, split: info.split, phase: info.phase } as const;
+
+  // 월요일: 1/2군 리그 공통 휴식. 선수도 회복일로 사용.
+  if (weekday === "MON") return { ...base, kind: "REST", title: "리그 휴식일" };
+
+  if (careerStage === "ACADEMY") {
+    const dayOfMonth = Number(date.slice(8, 10));
+    if (weekday === "TUE" && dayOfMonth <= 7)
+      return { ...base, kind: "EVALUATION", title: "월간 아카데미 평가" };
+    // 아카데미도 스크림을 매주 정확히 2회 강제하지 않는다.
+    // 주말 팀훈련과 일부 비경기일에 편성한다.
+    const academyScrimRoll = stableNumber(`${date}|ACADEMY|scrim-schedule`);
+    if ((weekday === "SAT" || weekday === "SUN") && academyScrimRoll < 0.58) {
+      return { ...base, kind: "SCRIM", title: "아카데미 팀 스크림" };
+    }
+    if (weekday === "WED" && academyScrimRoll < 0.22) {
+      return { ...base, kind: "SCRIM", title: "아카데미 팀 스크림" };
+    }
+    return { ...base, kind: "TRAINING", title: "아카데미 팀훈련" };
+  }
+
+  if (info.regularIndex >= 0) {
+    const round = info.regularIndex + 1;
+    const opponent = VORTEX_REGULAR_OPPONENTS[info.regularIndex];
+    return {
+      ...base,
+      kind: "REGULAR_MATCH",
+      title: `${info.split === "SPRING" ? "스프링" : "서머"} 정규시즌 ${round}R`,
+      round,
+      opponent,
+      bestOf: 3,
+    };
+  }
+
+  const playoffIndex = info.playoffDates.indexOf(date);
+  if (playoffIndex >= 0) {
+    const names = ["와일드카드전", "1라운드", "2라운드", "결승전"];
+    return {
+      ...base,
+      kind: "PLAYOFF_MATCH",
+      title: `${info.split === "SPRING" ? "스프링" : "서머"} 플레이오프 · ${names[playoffIndex]}`,
+      bestOf: playoffIndex === 0 ? 3 : 5,
+    };
+  }
+
+  // 공식전 일정이 최우선이다.
+  // 스크림은 고정 주 2회가 아니라, 공식전이 없는 리그 휴식일/주말 팀훈련 중 일부에만 편성한다.
+  // 같은 날짜는 항상 같은 결과가 나오도록 날짜 기반으로 결정한다.
+  const scrimRoll = stableNumber(`${date}|${careerStage}|scrim-schedule`);
+  const isWeekend = weekday === "SAT" || weekday === "SUN";
+  const isLeagueBreakDay = info.phase === "OFFSEASON";
+
+  if (
+    (isWeekend && scrimRoll < 0.48) ||
+    (isLeagueBreakDay && scrimRoll < 0.34)
+  ) {
+    return {
+      ...base,
+      kind: "SCRIM",
+      title: careerStage === "FIRST_TEAM" ? "1군 팀 스크림" : "2군 팀 스크림",
+    };
+  }
+
+  return {
+    ...base,
+    kind: "TRAINING",
+    title: careerStage === "FIRST_TEAM" ? "1군 팀훈련/리뷰" : "2군 팀훈련/리뷰",
+  };
+}
+
+export function getScheduleRange(state: GameState, days = 28) {
+  return Array.from({ length: days }, (_, i) => {
+    const date = addDaysKey(state.date, i);
+    return getCareerScheduleEntry(date, state.player.careerStage);
+  });
+}
+
 export function getDayType(
   date: string,
   careerStage: GameState["player"]["careerStage"],
 ): DayType {
-  const weekday = getWeekday(date);
-  const dayOfMonth = Number(date.slice(8, 10));
-
-  if (weekday === "SUN") return "REST";
-
-  if (careerStage === "ACADEMY") {
-    // 아카데미 월간 평가는 매월 첫 번째 월요일 1회.
-    if (weekday === "MON" && dayOfMonth <= 7) return "EVALUATION";
-
-    // 아카데미 정기 스크림은 수요일/토요일.
-    if (weekday === "WED" || weekday === "SAT") return "SCRIM";
+  const entry = getCareerScheduleEntry(date, careerStage);
+  if (entry.kind === "REST") return "REST";
+  if (entry.kind === "EVALUATION") return "EVALUATION";
+  if (entry.kind === "SCRIM") return "SCRIM";
+  if (entry.kind === "REGULAR_MATCH" || entry.kind === "PLAYOFF_MATCH") {
+    return careerStage === "FIRST_TEAM"
+      ? "FIRST_TEAM_MATCH"
+      : "SECOND_TEAM_MATCH";
   }
-
-  // 2군부터 토요일 공식 리그 경기.
-  if (careerStage === "SECOND_TEAM" && weekday === "SAT")
-    return "SECOND_TEAM_MATCH";
-
   return "TRAINING";
 }
 
@@ -165,7 +341,10 @@ export function getSecondTeamMatchInfo(state: GameState) {
     firstTeamInterest: 0,
     matchHistory: [],
   };
+  const schedule = getCareerScheduleEntry(state.date, state.player.careerStage);
+  const scheduledName = schedule.opponent ? `${schedule.opponent} 2군` : null;
   const opponent =
+    SECOND_TEAM_OPPONENTS.find((item) => item.name === scheduledName) ??
     SECOND_TEAM_OPPONENTS[(season.round - 1) % SECOND_TEAM_OPPONENTS.length];
   return {
     round: season.round,
@@ -192,7 +371,7 @@ export function getUpcomingSchedule(state: GameState) {
 
   const [year, month, day] = state.date.split("-").map(Number);
   const base = new Date(Date.UTC(year, month - 1, day));
-  for (let daysAway = 0; daysAway <= 14; daysAway++) {
+  for (let daysAway = 0; daysAway <= 28; daysAway++) {
     const target = new Date(base);
     target.setUTCDate(base.getUTCDate() + daysAway);
     const targetDate = [
@@ -204,7 +383,8 @@ export function getUpcomingSchedule(state: GameState) {
     if (
       dayType === "EVALUATION" ||
       dayType === "SCRIM" ||
-      dayType === "SECOND_TEAM_MATCH"
+      dayType === "SECOND_TEAM_MATCH" ||
+      dayType === "FIRST_TEAM_MATCH"
     ) {
       const weekday = getWeekday(targetDate);
       const academy = getSecondTeamMatchInfo(state);
@@ -545,6 +725,9 @@ export function newGame(
         assists: 0,
       },
       secondTeamSeason: {
+        year: 2027,
+        split: "SPRING",
+        phase: "REGULAR",
         round: 1,
         wins: 0,
         losses: 0,
@@ -1541,4 +1724,307 @@ export function calculateOvr(stats: Stats, position: Position): number {
   }
 
   return Math.round(total / 100);
+}
+
+export type SecondTeamMatchRole = "PLAY" | "BENCH";
+
+function stableNumber(seedText: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < seedText.length; i += 1) {
+    hash ^= seedText.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+export function getSecondTeamMatchRole(state: GameState) {
+  if (state.player.careerStage !== "SECOND_TEAM") {
+    return {
+      role: "BENCH" as SecondTeamMatchRole,
+      appearanceChance: 0,
+      reason: "2군 로스터 소속이 아닙니다.",
+    };
+  }
+  const chance = Math.max(
+    10,
+    Math.min(
+      82,
+      Math.round(
+        10 +
+          state.player.starterCompetition * 0.55 +
+          state.player.coachTrust * 0.2,
+      ),
+    ),
+  );
+  const roll =
+    stableNumber(
+      `${state.date}|${state.player.secondTeamSeason.round}|${state.actionSeed}|appearance`,
+    ) * 100;
+  if (roll < chance)
+    return {
+      role: "PLAY" as SecondTeamMatchRole,
+      appearanceChance: chance,
+      reason:
+        state.player.starterCompetition >= 55
+          ? "최근 훈련과 주전 경쟁에서 좋은 평가를 받아 출전 명단에 포함됐습니다."
+          : "코치진이 실전 경험을 주기 위해 이번 경기 출전 기회를 부여했습니다.",
+    };
+  return {
+    role: "BENCH" as SecondTeamMatchRole,
+    appearanceChance: chance,
+    reason:
+      state.player.starterCompetition < 35
+        ? "아직 주전 경쟁에서 앞선 선수가 있어 이번 경기는 벤치에서 대기합니다."
+        : "이번 경기 선발 조합에서 제외됐습니다. 벤치에서 경기를 지켜보며 다음 기회를 준비합니다.",
+  };
+}
+
+export function completeObservedSecondTeamMatch(
+  state: GameState,
+  watchedResult?: { win: boolean; teamKills?: number; enemyKills?: number },
+) {
+  const current = refreshRecovery(state);
+  const season = current.player.secondTeamSeason;
+  const matchInfo = getSecondTeamMatchInfo(current);
+  const winChance = Math.max(
+    0.28,
+    Math.min(0.72, 0.5 + (season.teamPower - matchInfo.opponent.power) * 0.025),
+  );
+  // 라이브 관전 화면에서 실제로 본 결과가 있으면 그 결과를 그대로 시즌에 반영한다.
+  const win =
+    watchedResult?.win ??
+    stableNumber(
+      `${current.date}|${season.round}|${current.actionSeed}|bench-result`,
+    ) < winChance;
+  const wins = season.wins + (win ? 1 : 0);
+  const losses = season.losses + (win ? 0 : 1);
+  const games = wins + losses;
+  const winRate = games ? wins / games : 0;
+  const teamRank = Math.max(
+    1,
+    Math.min(10, 10 - Math.round(winRate * 6 + wins * 0.35)),
+  );
+  const record = {
+    round: matchInfo.round,
+    date: current.date,
+    opponentId: matchInfo.opponent.id,
+    opponentName: matchInfo.opponent.name,
+    opponentPower: matchInfo.opponent.power,
+    win,
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+    performanceScore: 0,
+    playerParticipated: false,
+  };
+  const next: GameState = {
+    ...current,
+    slot: "AFTERNOON",
+    actionSeed: current.actionSeed + 283,
+    player: {
+      ...current.player,
+      morningEventCompletedDate: current.date,
+      secondTeamSeason: {
+        ...season,
+        round: season.round + 1,
+        wins,
+        losses,
+        teamRank,
+        matchHistory: [...season.matchHistory, record].slice(-20),
+      },
+      stamina: Math.max(0, current.player.stamina - 5),
+      stress: Math.min(100, current.player.stress + (win ? 0 : 1)),
+      starterCompetition: Math.min(100, current.player.starterCompetition + 1),
+    },
+  };
+  const scoreText =
+    watchedResult?.teamKills != null && watchedResult?.enemyKills != null
+      ? ` · ${watchedResult.teamKills}:${watchedResult.enemyKills}`
+      : "";
+  return {
+    state: next,
+    summary: `${matchInfo.opponent.name}전 ${win ? "승리" : "패배"}${scoreText}. 벤치에서 풀타임으로 경기를 지켜봤습니다.`,
+  };
+}
+
+export interface LeagueStandingRow {
+  rank: number;
+  team: string;
+  wins: number;
+  losses: number;
+  winRate: number;
+  isMyTeam: boolean;
+}
+export interface KdaRankingRow {
+  rank: number;
+  name: string;
+  team: string;
+  position: Position;
+  games: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  kda: number;
+  isPlayer: boolean;
+}
+export interface LaneRankingRow {
+  rank: number;
+  name: string;
+  team: string;
+  position: Position;
+  score: number;
+  isPlayer: boolean;
+}
+
+const LEAGUE_TEAMS = [
+  "VORTEX 2군",
+  "NOVA 2군",
+  "RAVEN 2군",
+  "APEX 2군",
+  "ZERO 2군",
+  "ORBIT 2군",
+  "TITAN 2군",
+  "PULSE 2군",
+  "ECLIPSE 2군",
+  "PHANTOM 2군",
+] as const;
+const NPC_NAMES = [
+  "KAIN",
+  "RUNE",
+  "NERO",
+  "VEIL",
+  "ARC",
+  "LUCID",
+  "CROW",
+  "MAVE",
+  "REX",
+  "SION",
+  "NOAH",
+  "JUNE",
+  "RAY",
+  "DUSK",
+  "FATE",
+  "LYNX",
+  "ROOK",
+  "MINT",
+  "ZEAL",
+  "ONYX",
+];
+
+export function getLeagueDashboard(state: GameState) {
+  const season = state.player.secondTeamSeason;
+  const playedRounds = Math.max(0, season.round - 1);
+  const standings: LeagueStandingRow[] = LEAGUE_TEAMS.map((team) => {
+    if (team === "VORTEX 2군")
+      return {
+        rank: 0,
+        team,
+        wins: season.wins,
+        losses: season.losses,
+        winRate:
+          season.wins + season.losses
+            ? season.wins / (season.wins + season.losses)
+            : 0,
+        isMyTeam: true,
+      };
+    const wins =
+      playedRounds === 0
+        ? 0
+        : Math.max(
+            0,
+            Math.min(
+              playedRounds,
+              Math.round(
+                stableNumber(`${team}|${playedRounds}|standings`) *
+                  playedRounds,
+              ),
+            ),
+          );
+    return {
+      rank: 0,
+      team,
+      wins,
+      losses: playedRounds - wins,
+      winRate: playedRounds ? wins / playedRounds : 0,
+      isMyTeam: false,
+    };
+  })
+    .sort(
+      (a, b) => b.wins - a.wins || a.losses - b.losses || b.winRate - a.winRate,
+    )
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+
+  const positions: Position[] = ["TOP", "JUNGLE", "MID", "BOT", "SUPPORT"];
+  const npcKda: KdaRankingRow[] = NPC_NAMES.slice(0, 15).map((name, i) => {
+    const games = Math.max(1, playedRounds),
+      deaths = Math.max(
+        1,
+        Math.round(games * (1.2 + stableNumber(name + "d") * 2.6)),
+      );
+    const kills = Math.round(games * (1 + stableNumber(name + "k") * 3.8)),
+      assists = Math.round(games * (2 + stableNumber(name + "a") * 5.5));
+    return {
+      rank: 0,
+      name,
+      team: LEAGUE_TEAMS[(i % 9) + 1],
+      position: positions[i % 5],
+      games,
+      kills,
+      deaths,
+      assists,
+      kda: (kills + assists) / deaths,
+      isPlayer: false,
+    };
+  });
+  const ps = state.player.seasonStats;
+  const kdaRows = [...npcKda];
+  if (ps.games > 0)
+    kdaRows.push({
+      rank: 0,
+      name: state.player.name,
+      team: "VORTEX 2군",
+      position: state.player.position,
+      games: ps.games,
+      kills: ps.kills,
+      deaths: ps.deaths,
+      assists: ps.assists,
+      kda: (ps.kills + ps.assists) / Math.max(1, ps.deaths),
+      isPlayer: true,
+    });
+  const kda = kdaRows
+    .sort((a, b) => b.kda - a.kda)
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+
+  const laneNpc: LaneRankingRow[] = Array.from({ length: 8 }, (_, i) => {
+    const name = NPC_NAMES[(i + 3) % NPC_NAMES.length];
+    return {
+      rank: 0,
+      name,
+      team: LEAGUE_TEAMS[(i % 9) + 1],
+      position: state.player.position,
+      score: Math.round(
+        58 + stableNumber(`${name}|${state.player.position}|lane`) * 28,
+      ),
+      isPlayer: false,
+    };
+  });
+  const playerLaneScore = Math.round(
+    calculateOvr(state.player.stats, state.player.position) * 0.55 +
+      state.player.coachTrust * 0.2 +
+      state.player.starterCompetition * 0.25,
+  );
+  const lane = [
+    ...laneNpc,
+    {
+      rank: 0,
+      name: state.player.name,
+      team: "VORTEX 2군",
+      position: state.player.position,
+      score: playerLaneScore,
+      isPlayer: true,
+    },
+  ]
+    .sort((a, b) => b.score - a.score)
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+  return { standings, kda, lane };
 }

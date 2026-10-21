@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Pressable,
@@ -13,6 +13,7 @@ import {
 import {
     completeAcademyEvaluation,
     completeAcademyScrim,
+    completeObservedSecondTeamMatch,
     completeSecondTeamMatch,
     getDayType,
     getSecondTeamMatchInfo,
@@ -32,7 +33,18 @@ import { GameState } from "../types/game";
 const LIME = "#C8FF37";
 
 export default function MatchScreen() {
+  const params = useLocalSearchParams<{ mode?: string }>();
+  const startsOnBench = params.mode === "spectate";
   const [game, setGame] = useState<GameState | null>(null);
+  const [playerInSet, setPlayerInSet] = useState(!startsOnBench);
+  const [setNumber, setSetNumber] = useState(1);
+  const [seriesTeamWins, setSeriesTeamWins] = useState(0);
+  const [seriesEnemyWins, setSeriesEnemyWins] = useState(0);
+  const [seriesPlayerKills, setSeriesPlayerKills] = useState(0);
+  const [seriesPlayerDeaths, setSeriesPlayerDeaths] = useState(0);
+  const [seriesPlayerAssists, setSeriesPlayerAssists] = useState(0);
+  const [seriesPerformanceTotal, setSeriesPerformanceTotal] = useState(0);
+  const [seriesPlayedSets, setSeriesPlayedSets] = useState(0);
   const [match, setMatch] = useState<ScrimState | null>(null);
   const [choiceMessage, setChoiceMessage] = useState<string | null>(null);
   const commentaryScrollRef = useRef<ScrollView>(null);
@@ -55,7 +67,18 @@ export default function MatchScreen() {
         }
 
         setGame(loaded);
-        setMatch(createScrim(loaded));
+        const simulationGame = startsOnBench
+          ? {
+              ...loaded,
+              actionSeed: loaded.actionSeed + 101,
+              player: {
+                ...loaded.player,
+                name: `VORTEX ${loaded.player.position}`,
+              },
+            }
+          : { ...loaded, actionSeed: loaded.actionSeed + 101 };
+        setPlayerInSet(!startsOnBench);
+        setMatch(createScrim(simulationGame));
       });
 
       return () => {
@@ -68,20 +91,45 @@ export default function MatchScreen() {
     if (!game || !match || match.finished) return;
 
     const activeMoment = currentMoment(match);
-    if (activeMoment) return;
 
     const timer = setTimeout(() => {
+      if (activeMoment) {
+        if (playerInSet) return;
+
+        // 벤치 관전 중에는 사용자가 플레이 선택을 하지 않는다.
+        // 경기장 안의 선수가 상황에 맞춰 자동으로 판단하고 경기는 같은 속도로 계속 진행된다.
+        const autoChoice =
+          activeMoment.choices[
+            (game.actionSeed + match.momentIndex * 17 + match.minute) %
+              activeMoment.choices.length
+          ];
+        const simulationGame = {
+          ...game,
+          actionSeed: game.actionSeed + setNumber * 101,
+          player: { ...game.player, name: `VORTEX ${game.player.position}` },
+        };
+        setMatch(resolveScrimChoice(simulationGame, match, autoChoice).state);
+        return;
+      }
+
+      const simulationGame = playerInSet
+        ? { ...game, actionSeed: game.actionSeed + setNumber * 101 }
+        : {
+            ...game,
+            actionSeed: game.actionSeed + setNumber * 101,
+            player: { ...game.player, name: `VORTEX ${game.player.position}` },
+          };
       const next =
         match.momentIndex >= 3 &&
         match.commentaryIndex >= match.commentary.length - 1
-          ? finishScrim(game, match)
-          : advanceScrim(game, match);
+          ? finishScrim(simulationGame, match)
+          : advanceScrim(simulationGame, match);
 
       setMatch(next);
-    }, 1900);
+    }, 1200);
 
     return () => clearTimeout(timer);
-  }, [game, match]);
+  }, [game, match, playerInSet, setNumber]);
 
   if (!game || !match) {
     return (
@@ -120,39 +168,113 @@ export default function MatchScreen() {
     return value > 0 ? `+${value}` : `${value}`;
   }
 
+  function startNextOfficialSet() {
+    if (!game || !match?.result) return;
+
+    const result = match.result;
+    const nextTeamWins = seriesTeamWins + (result.win ? 1 : 0);
+    const nextEnemyWins = seriesEnemyWins + (result.win ? 0 : 1);
+
+    setSeriesTeamWins(nextTeamWins);
+    setSeriesEnemyWins(nextEnemyWins);
+
+    if (playerInSet) {
+      setSeriesPlayedSets((value) => value + 1);
+      setSeriesPlayerKills((value) => value + result.playerKills);
+      setSeriesPlayerDeaths((value) => value + result.playerDeaths);
+      setSeriesPlayerAssists((value) => value + result.playerAssists);
+      setSeriesPerformanceTotal((value) => value + result.performanceScore);
+    }
+
+    const nextSetNumber = setNumber + 1;
+
+    // LoL 교체 규칙: 진행 중인 세트에서는 절대 교체하지 않는다.
+    // 엔트리 변경은 세트 종료 후 다음 세트 시작 전에만 감독이 결정한다.
+    let nextPlayerInSet = playerInSet;
+    if (!playerInSet) {
+      const substitutionRoll =
+        (((game.actionSeed + nextSetNumber * 37 + nextEnemyWins * 19) % 100) +
+          100) %
+        100;
+      const substitutionChance = result.win ? 22 : 48;
+      nextPlayerInSet = substitutionRoll < substitutionChance;
+    }
+
+    setPlayerInSet(nextPlayerInSet);
+    setSetNumber(nextSetNumber);
+    setChoiceMessage(null);
+
+    const nextSetGame = nextPlayerInSet
+      ? { ...game, actionSeed: game.actionSeed + nextSetNumber * 101 }
+      : {
+          ...game,
+          actionSeed: game.actionSeed + nextSetNumber * 101,
+          player: { ...game.player, name: `VORTEX ${game.player.position}` },
+        };
+
+    setMatch(createScrim(nextSetGame));
+  }
+
   async function finishEvaluation() {
     if (!game || !match?.result) return;
     const result = match.result;
-    const next = isSecondTeamOfficial
-      ? completeSecondTeamMatch(game, {
-          win: result.win,
-          playerKills: result.playerKills,
-          playerDeaths: result.playerDeaths,
-          playerAssists: result.playerAssists,
-          performanceScore: result.performanceScore,
-        })
-      : isAcademyEvaluation
-        ? completeAcademyEvaluation(game, {
-            grade: result.grade,
-            performanceScore: result.performanceScore,
-            win: result.win,
-            coachTrustDelta: result.coachTrustDelta,
-            starterCompetitionDelta: result.starterCompetitionDelta,
-          })
-        : completeAcademyScrim(game, {
-            grade: result.grade,
-            performanceScore: result.performanceScore,
-            win: result.win,
-            playerKills: result.playerKills,
-            playerDeaths: result.playerDeaths,
-            playerAssists: result.playerAssists,
-          });
+
+    const finalTeamWins = seriesTeamWins + (result.win ? 1 : 0);
+    const finalEnemyWins = seriesEnemyWins + (result.win ? 0 : 1);
+    const playedThisSet = isSecondTeamOfficial && playerInSet;
+    const totalPlayedSets = seriesPlayedSets + (playedThisSet ? 1 : 0);
+    const totalKills =
+      seriesPlayerKills + (playedThisSet ? result.playerKills : 0);
+    const totalDeaths =
+      seriesPlayerDeaths + (playedThisSet ? result.playerDeaths : 0);
+    const totalAssists =
+      seriesPlayerAssists + (playedThisSet ? result.playerAssists : 0);
+    const totalPerformance =
+      seriesPerformanceTotal + (playedThisSet ? result.performanceScore : 0);
+    const seriesWin = finalTeamWins > finalEnemyWins;
+
+    const next =
+      isSecondTeamOfficial && totalPlayedSets === 0
+        ? completeObservedSecondTeamMatch(game, {
+            win: seriesWin,
+          }).state
+        : isSecondTeamOfficial
+          ? completeSecondTeamMatch(game, {
+              win: seriesWin,
+              playerKills: totalKills,
+              playerDeaths: totalDeaths,
+              playerAssists: totalAssists,
+              performanceScore: Math.round(
+                totalPerformance / Math.max(1, totalPlayedSets),
+              ),
+            })
+          : isAcademyEvaluation
+            ? completeAcademyEvaluation(game, {
+                grade: result.grade,
+                performanceScore: result.performanceScore,
+                win: result.win,
+                coachTrustDelta: result.coachTrustDelta,
+                starterCompetitionDelta: result.starterCompetitionDelta,
+              })
+            : completeAcademyScrim(game, {
+                grade: result.grade,
+                performanceScore: result.performanceScore,
+                win: result.win,
+                playerKills: result.playerKills,
+                playerDeaths: result.playerDeaths,
+                playerAssists: result.playerAssists,
+              });
     await saveGame(next);
     router.replace("/home");
   }
 
   if (match.finished && match.result) {
     const r = match.result;
+    const projectedTeamWins = seriesTeamWins + (r.win ? 1 : 0);
+    const projectedEnemyWins = seriesEnemyWins + (r.win ? 0 : 1);
+    const officialSeriesFinished =
+      isSecondTeamOfficial &&
+      (projectedTeamWins >= 2 || projectedEnemyWins >= 2);
 
     return (
       <SafeAreaView style={styles.safe}>
@@ -161,14 +283,29 @@ export default function MatchScreen() {
             {isSecondTeamOfficial ? "SECOND TEAM LEAGUE" : "SCRIM COMPLETE"}
           </Text>
           <Text style={styles.resultHeadline}>
-            {r.win
-              ? isSecondTeamOfficial
-                ? "공식전 승리"
-                : "스크림 승리"
-              : isSecondTeamOfficial
-                ? "공식전 패배"
+            {isSecondTeamOfficial
+              ? officialSeriesFinished
+                ? projectedTeamWins > projectedEnemyWins
+                  ? "BO3 승리"
+                  : "BO3 패배"
+                : `${setNumber}세트 ${r.win ? "승리" : "패배"}`
+              : r.win
+                ? "스크림 승리"
                 : "스크림 패배"}
           </Text>
+
+          {isSecondTeamOfficial && (
+            <View style={styles.seriesCard}>
+              <Text style={styles.cardLabel}>BO3 · SET SCORE</Text>
+              <Text style={styles.seriesScore}>
+                VORTEX {projectedTeamWins} : {projectedEnemyWins}{" "}
+                {secondTeamMatch?.opponent.name ?? "상대 2군"}
+              </Text>
+              <Text style={styles.smallText}>
+                {setNumber}세트 종료 · 선수 교체는 세트 사이에만 가능합니다.
+              </Text>
+            </View>
+          )}
 
           <View style={styles.scoreCard}>
             <Text style={styles.teamName}>
@@ -182,15 +319,25 @@ export default function MatchScreen() {
             </Text>
           </View>
 
-          <View style={styles.kdaCard}>
-            <Text style={styles.cardLabel}>개인 기록</Text>
-            <Text style={styles.kda}>
-              {r.playerKills} / {r.playerDeaths} / {r.playerAssists}
-            </Text>
-            <Text style={styles.smallText}>
-              클러치 성공 {r.clutchSuccesses} / {r.clutchTotal}
-            </Text>
-          </View>
+          {!playerInSet ? (
+            <View style={styles.kdaCard}>
+              <Text style={styles.cardLabel}>벤치 관전</Text>
+              <Text style={styles.kda}>FULL TIME</Text>
+              <Text style={styles.smallText}>
+                출전 기록 없이 팀 경기 결과만 시즌에 반영됩니다.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.kdaCard}>
+              <Text style={styles.cardLabel}>개인 기록</Text>
+              <Text style={styles.kda}>
+                {r.playerKills} / {r.playerDeaths} / {r.playerAssists}
+              </Text>
+              <Text style={styles.smallText}>
+                클러치 성공 {r.clutchSuccesses} / {r.clutchTotal}
+              </Text>
+            </View>
+          )}
 
           {isAcademyEvaluation && (
             <View style={styles.evaluationBreakdown}>
@@ -222,75 +369,88 @@ export default function MatchScreen() {
             </View>
           )}
 
-          <View style={styles.coachCard}>
-            <View style={styles.gradeRow}>
-              <View>
-                <Text style={styles.cardLabel}>
-                  {isSecondTeamOfficial
-                    ? "공식전 평가"
-                    : isRegularScrim
-                      ? "스크림 피드백"
-                      : "월간 코치 평가"}
-                </Text>
-                <Text style={styles.performance}>
-                  퍼포먼스 {r.performanceScore}
-                </Text>
-              </View>
-              <Text style={styles.grade}>{r.grade}</Text>
-            </View>
-
-            <Text style={styles.comment}>"{r.coachComment}"</Text>
-
-            <View style={styles.feedbackRow}>
-              <View style={styles.feedbackBox}>
-                <Text style={styles.feedbackLabel}>강점</Text>
-                <Text style={styles.feedbackText}>
-                  {r.strengths.join(" · ")}
-                </Text>
-              </View>
-              <View style={styles.feedbackBox}>
-                <Text style={styles.feedbackLabel}>보완점</Text>
-                <Text style={styles.feedbackText}>
-                  {r.improvements.join(" · ")}
-                </Text>
-              </View>
-            </View>
-
-            {!isRegularScrim && (
-              <View style={styles.deltaRow}>
-                <Text style={styles.deltaText}>
-                  코치 신뢰{" "}
-                  <Text
-                    style={[
-                      styles.positive,
-                      r.coachTrustDelta < 0 && styles.negative,
-                    ]}
-                  >
-                    {signed(r.coachTrustDelta)}
+          {playerInSet && (
+            <View style={styles.coachCard}>
+              <View style={styles.gradeRow}>
+                <View>
+                  <Text style={styles.cardLabel}>
+                    {isSecondTeamOfficial
+                      ? "공식전 평가"
+                      : isRegularScrim
+                        ? "스크림 피드백"
+                        : "월간 코치 평가"}
                   </Text>
-                </Text>
-                <Text style={styles.deltaText}>
-                  주전 경쟁{" "}
-                  <Text
-                    style={[
-                      styles.positive,
-                      r.starterCompetitionDelta < 0 && styles.negative,
-                    ]}
-                  >
-                    {signed(r.starterCompetitionDelta)}
+                  <Text style={styles.performance}>
+                    퍼포먼스 {r.performanceScore}
                   </Text>
-                </Text>
+                </View>
+                <Text style={styles.grade}>{r.grade}</Text>
               </View>
-            )}
-          </View>
 
-          <Pressable style={styles.primaryButton} onPress={finishEvaluation}>
+              <Text style={styles.comment}>"{r.coachComment}"</Text>
+
+              <View style={styles.feedbackRow}>
+                <View style={styles.feedbackBox}>
+                  <Text style={styles.feedbackLabel}>강점</Text>
+                  <Text style={styles.feedbackText}>
+                    {r.strengths.join(" · ")}
+                  </Text>
+                </View>
+                <View style={styles.feedbackBox}>
+                  <Text style={styles.feedbackLabel}>보완점</Text>
+                  <Text style={styles.feedbackText}>
+                    {r.improvements.join(" · ")}
+                  </Text>
+                </View>
+              </View>
+
+              {!isRegularScrim && (
+                <View style={styles.deltaRow}>
+                  <Text style={styles.deltaText}>
+                    코치 신뢰{" "}
+                    <Text
+                      style={[
+                        styles.positive,
+                        r.coachTrustDelta < 0 && styles.negative,
+                      ]}
+                    >
+                      {signed(r.coachTrustDelta)}
+                    </Text>
+                  </Text>
+                  <Text style={styles.deltaText}>
+                    주전 경쟁{" "}
+                    <Text
+                      style={[
+                        styles.positive,
+                        r.starterCompetitionDelta < 0 && styles.negative,
+                      ]}
+                    >
+                      {signed(r.starterCompetitionDelta)}
+                    </Text>
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          <Pressable
+            style={styles.primaryButton}
+            onPress={
+              isSecondTeamOfficial && !officialSeriesFinished
+                ? startNextOfficialSet
+                : finishEvaluation
+            }
+          >
             <Text style={styles.primaryButtonText}>
-              {isSecondTeamOfficial
-                ? "경기 결과 확인"
-                : isRegularScrim
-                  ? "스크림 종료"
-                  : "평가 확인"}
+              {isSecondTeamOfficial && !officialSeriesFinished
+                ? "다음 세트 준비"
+                : !playerInSet
+                  ? "관전 종료"
+                  : isSecondTeamOfficial
+                    ? "경기 결과 확인"
+                    : isRegularScrim
+                      ? "스크림 종료"
+                      : "평가 확인"}
             </Text>
           </Pressable>
         </ScrollView>
@@ -304,22 +464,28 @@ export default function MatchScreen() {
         <View style={styles.header}>
           <Text style={styles.kicker}>
             {isSecondTeamOfficial
-              ? "ACADEMY LEAGUE · OFFICIAL"
+              ? playerInSet
+                ? `SECOND TEAM LEAGUE · SET ${setNumber}`
+                : `SECOND TEAM LEAGUE · BENCH · SET ${setNumber}`
               : isRegularScrim
                 ? "TEAM SCRIM"
                 : "ACADEMY EVALUATION · MONTHLY"}
           </Text>
           <Text style={styles.headerTitle}>
             {isSecondTeamOfficial
-              ? "아카데미 리그"
+              ? playerInSet
+                ? `2군 공식전 · ${setNumber}세트 출전`
+                : `2군 공식전 · ${setNumber}세트 벤치 관전`
               : isRegularScrim
                 ? "정기 스크림"
-                : "월간 연습생 평가전"}
+                : "월간 아카데미 평가전"}
           </Text>
           <Text style={styles.headerSub}>
-            {isSecondTeamOfficial
-              ? "공식전 · 경기 흐름은 자동 중계되며 중요한 순간에 직접 판단합니다."
-              : "경기 상황은 자동으로 진행되고, 중요한 순간에만 직접 선택합니다."}
+            {isSecondTeamOfficial && !playerInSet
+              ? "벤치에서 세트 전체를 실시간 관전합니다. 선수 교체는 이 세트가 끝난 뒤에만 가능합니다."
+              : isSecondTeamOfficial
+                ? "공식전 · 경기 흐름은 자동 중계되며 중요한 순간에 직접 판단합니다."
+                : "경기 상황은 자동으로 진행되고, 중요한 순간에만 직접 선택합니다."}
           </Text>
         </View>
 
@@ -347,41 +513,64 @@ export default function MatchScreen() {
           </View>
         </View>
 
-        <View style={styles.playerLine}>
-          <Text style={styles.playerLineLabel}>{game.player.position}</Text>
-          <Text style={styles.playerLineValue}>
-            {match.playerKills} / {match.playerDeaths} / {match.playerAssists}
-          </Text>
-        </View>
+        {!playerInSet ? (
+          <View style={styles.playerLine}>
+            <Text style={styles.playerLineLabel}>BENCH</Text>
+            <Text style={styles.playerLineValue}>관전 중 · 미출전</Text>
+          </View>
+        ) : (
+          <View style={styles.playerLine}>
+            <Text style={styles.playerLineLabel}>{game.player.position}</Text>
+            <Text style={styles.playerLineValue}>
+              {match.playerKills} / {match.playerDeaths} / {match.playerAssists}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.gameArea}>
           {moment ? (
-            <>
-              <Text style={styles.clutchLabel}>CLUTCH SITUATION</Text>
-              <Text style={styles.momentTitle}>{moment.title}</Text>
-              <Text style={styles.situation}>{moment.situation}</Text>
+            !playerInSet ? (
+              <>
+                <Text style={styles.clutchLabel}>LIVE SITUATION</Text>
+                <Text style={styles.momentTitle}>{moment.title}</Text>
+                <Text style={styles.situation}>{moment.situation}</Text>
+                <View style={styles.liveDots}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.progressDesc}>
+                    선수들의 판단을 지켜보는 중...
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.clutchLabel}>CLUTCH SITUATION</Text>
+                <Text style={styles.momentTitle}>{moment.title}</Text>
+                <Text style={styles.situation}>{moment.situation}</Text>
 
-              <View style={styles.choiceList}>
-                {moment.choices.map((choice: ScrimChoice) => (
-                  <Pressable
-                    key={choice.id}
-                    style={styles.choice}
-                    onPress={() => choose(choice)}
-                  >
-                    <View style={styles.choiceTop}>
-                      <Text style={styles.choiceTitle}>{choice.title}</Text>
-                      <Text style={styles.risk}>{choice.risk}</Text>
-                    </View>
-                    <Text style={styles.choiceDesc}>{choice.description}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </>
+                <View style={styles.choiceList}>
+                  {moment.choices.map((choice: ScrimChoice) => (
+                    <Pressable
+                      key={choice.id}
+                      style={styles.choice}
+                      onPress={() => choose(choice)}
+                    >
+                      <View style={styles.choiceTop}>
+                        <Text style={styles.choiceTitle}>{choice.title}</Text>
+                        <Text style={styles.risk}>{choice.risk}</Text>
+                      </View>
+                      <Text style={styles.choiceDesc}>
+                        {choice.description}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )
           ) : (
             <>
               <View style={styles.liveHeader}>
                 <Text style={styles.liveLabel}>LIVE MATCH FEED</Text>
-                <Text style={styles.autoLabel}>1.4초 자동 진행</Text>
+                <Text style={styles.autoLabel}>1.2초 자동 진행</Text>
               </View>
 
               {choiceMessage && (
@@ -593,6 +782,22 @@ const styles = StyleSheet.create({
     marginTop: 5,
     marginBottom: 18,
   },
+  seriesCard: {
+    backgroundColor: "#151515",
+    borderWidth: 1,
+    borderColor: "#2B2B2B",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+  },
+  seriesScore: {
+    color: "#FFF",
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 5,
+    marginBottom: 4,
+  },
+
   scoreCard: {
     height: 90,
     borderRadius: 18,
