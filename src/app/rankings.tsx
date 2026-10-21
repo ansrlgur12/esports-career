@@ -76,7 +76,7 @@ export default function RankingsScreen() {
         <Text style={s.title}>{league ? "2군 리그" : "아카데미"}</Text>
         <Text style={s.desc}>
           {league
-            ? `${game.player.secondTeamSeason.round}R 진행 · ${game.player.secondTeamSeason.wins}승 ${game.player.secondTeamSeason.losses}패`
+            ? `${data.completedRounds}R 완료 · ${game.player.secondTeamSeason.wins}승 ${game.player.secondTeamSeason.losses}패`
             : "아카데미는 공식 리그에 참가하지 않습니다. 2군 콜업 후 공식 순위와 KDA가 활성화됩니다."}
         </Text>
       </View>
@@ -114,9 +114,16 @@ export default function RankingsScreen() {
                   </Text>
                   <Text style={s.sub}>{row.wins + row.losses}경기</Text>
                 </View>
-                <Text style={s.record}>
-                  {row.wins}승 {row.losses}패
-                </Text>
+                <View style={s.recordBox}>
+                  <Text style={s.record}>
+                    {row.wins}승 {row.losses}패
+                  </Text>
+                  <Text style={s.setRecord}>
+                    세트 {row.setWins}-{row.setLosses} ·{" "}
+                    {row.setDiff >= 0 ? "+" : ""}
+                    {row.setDiff}
+                  </Text>
+                </View>
                 <Text style={s.value}>{Math.round(row.winRate * 100)}%</Text>
               </View>
             ))
@@ -346,12 +353,9 @@ const s = StyleSheet.create({
   main: { flex: 1, minWidth: 0 },
   name: { color: "#F5F7F8", fontSize: 14, fontWeight: "900" },
   sub: { color: "#727D86", fontSize: 10, fontWeight: "700", marginTop: 3 },
-  record: {
-    color: "#B7C0C7",
-    fontSize: 11,
-    fontWeight: "800",
-    marginRight: 10,
-  },
+  recordBox: { alignItems: "flex-end", marginRight: 10 },
+  record: { color: "#B7C0C7", fontSize: 11, fontWeight: "800" },
+  setRecord: { color: "#68737C", fontSize: 8, fontWeight: "800", marginTop: 3 },
   value: {
     width: 42,
     textAlign: "right",

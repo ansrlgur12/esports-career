@@ -54,6 +54,14 @@ export interface SeasonStats {
   assists: number;
 }
 
+export interface SecondTeamStarterSeriesStats {
+  sets: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  performanceScore: number;
+}
+
 export interface SecondTeamMatchRecord {
   round: number;
   date: string;
@@ -66,6 +74,44 @@ export interface SecondTeamMatchRecord {
   assists: number;
   performanceScore: number;
   playerParticipated?: boolean;
+  starterStats?: SecondTeamStarterSeriesStats;
+}
+
+export type SecondTeamLeagueTeamId =
+  | "VORTEX"
+  | "NOVA"
+  | "RAVEN"
+  | "APEX"
+  | "ZERO"
+  | "ORBIT"
+  | "TITAN"
+  | "PULSE"
+  | "ECLIPSE"
+  | "PHANTOM";
+
+export interface SecondTeamLeagueMatchResult {
+  round: number;
+  teamA: SecondTeamLeagueTeamId;
+  teamB: SecondTeamLeagueTeamId;
+  winner: SecondTeamLeagueTeamId;
+  teamASets: number;
+  teamBSets: number;
+}
+
+export interface SecondTeamLeaguePlayerStat {
+  id: string;
+  name: string;
+  team: SecondTeamLeagueTeamId;
+  position: Position;
+  games: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+}
+
+export interface SecondTeamLeagueState {
+  results: SecondTeamLeagueMatchResult[];
+  players: SecondTeamLeaguePlayerStat[];
 }
 
 export type SplitName = "SPRING" | "SUMMER";
@@ -84,6 +130,7 @@ export interface SecondTeamSeasonState {
   teamPower: number;
   firstTeamInterest: number;
   matchHistory: SecondTeamMatchRecord[];
+  leagueState?: SecondTeamLeagueState;
 }
 
 export interface AcademyEvaluationRecord {

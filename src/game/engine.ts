@@ -8,6 +8,11 @@ import {
   Position,
   ScrimGrade,
   SecondTeamCallupCandidate,
+  SecondTeamLeagueMatchResult,
+  SecondTeamLeaguePlayerStat,
+  SecondTeamLeagueState,
+  SecondTeamLeagueTeamId,
+  SecondTeamStarterSeriesStats,
   StatKey,
   Stats,
   StatXp,
@@ -329,6 +334,7 @@ export const SECOND_TEAM_OPPONENTS = [
   { id: "titan", name: "TITAN 2군", power: 72 },
   { id: "pulse", name: "PULSE 2군", power: 64 },
   { id: "eclipse", name: "ECLIPSE 2군", power: 69 },
+  { id: "phantom", name: "PHANTOM 2군", power: 67 },
 ] as const;
 
 export function getSecondTeamMatchInfo(state: GameState) {
@@ -784,6 +790,7 @@ export function migrateGame(raw: any): GameState {
     teamPower: raw?.player?.secondTeamSeason?.teamPower ?? 64,
     firstTeamInterest: raw?.player?.secondTeamSeason?.firstTeamInterest ?? 0,
     matchHistory: raw?.player?.secondTeamSeason?.matchHistory ?? [],
+    leagueState: raw?.player?.secondTeamSeason?.leagueState,
   };
 
   return refreshRecovery({
@@ -1288,7 +1295,9 @@ export function completeSecondTeamMatch(
     playerDeaths: number;
     playerAssists: number;
     performanceScore: number;
-    starterStats?: StarterSeriesStats;
+    setWins?: number;
+    setLosses?: number;
+    starterStats?: SecondTeamStarterSeriesStats;
   },
 ): GameState {
   const current = refreshRecovery(state);
@@ -1323,7 +1332,7 @@ export function completeSecondTeamMatch(
     playerParticipated: true,
     // 기존 저장 타입을 깨지 않고 matchHistory에 영속화한다.
     starterStats: result.starterStats,
-  } as any;
+  };
 
   const wins = season.wins + (result.win ? 1 : 0);
   const losses = season.losses + (result.win ? 0 : 1);
@@ -1346,6 +1355,20 @@ export function completeSecondTeamMatch(
     Math.min(10, 10 - Math.round(winRate * 6 + wins * 0.35)),
   );
 
+  const setWins = result.setWins ?? (result.win ? 2 : 1);
+  const setLosses = result.setLosses ?? (result.win ? 1 : 2);
+  const leagueState = applyCompletedLeagueRound(
+    current,
+    matchInfo.round,
+    matchInfo.opponent.name,
+    result.win,
+    setWins,
+    setLosses,
+  );
+  const realStandings = calculateLeagueStandings(leagueState.results);
+  const realTeamRank =
+    realStandings.findIndex((row) => row.team === "VORTEX") + 1;
+
   return {
     ...current,
     date: current.date,
@@ -1365,7 +1388,8 @@ export function completeSecondTeamMatch(
         round: season.round + 1,
         wins,
         losses,
-        teamRank,
+        teamRank: realTeamRank || teamRank,
+        leagueState,
         firstTeamInterest: Math.max(
           0,
           Math.min(100, season.firstTeamInterest + interestDelta),
@@ -1821,15 +1845,9 @@ function stableNumber(seedText: string): number {
   return (hash >>> 0) / 4294967295;
 }
 
-type StarterSeriesStats = {
-  sets: number;
-  kills: number;
-  deaths: number;
-  assists: number;
-  performanceScore: number;
-};
-
-function getRecordedStarterStats(record: unknown): StarterSeriesStats | null {
+function getRecordedStarterStats(
+  record: unknown,
+): SecondTeamStarterSeriesStats | null {
   const raw = record as any;
   const stats = raw?.starterStats;
   if (!stats || typeof stats.sets !== "number" || stats.sets <= 0) return null;
@@ -1852,7 +1870,7 @@ function getStarterSeasonSnapshot(state: GameState) {
     }))
     .filter((item) => item.stats != null) as {
     record: unknown;
-    stats: StarterSeriesStats;
+    stats: SecondTeamStarterSeriesStats;
   }[];
 
   if (records.length === 0) {
@@ -1863,7 +1881,7 @@ function getStarterSeasonSnapshot(state: GameState) {
       kills: 0,
       deaths: 0,
       assists: 0,
-      recent: [] as StarterSeriesStats[],
+      recent: [] as SecondTeamStarterSeriesStats[],
     };
   }
 
@@ -2075,7 +2093,9 @@ export function completeObservedSecondTeamMatch(
     win: boolean;
     teamKills?: number;
     enemyKills?: number;
-    starterStats?: StarterSeriesStats;
+    setWins?: number;
+    setLosses?: number;
+    starterStats?: SecondTeamStarterSeriesStats;
   },
 ) {
   const current = refreshRecovery(state);
@@ -2099,6 +2119,19 @@ export function completeObservedSecondTeamMatch(
     1,
     Math.min(10, 10 - Math.round(winRate * 6 + wins * 0.35)),
   );
+  const setWins = watchedResult?.setWins ?? (win ? 2 : 1);
+  const setLosses = watchedResult?.setLosses ?? (win ? 1 : 2);
+  const leagueState = applyCompletedLeagueRound(
+    current,
+    matchInfo.round,
+    matchInfo.opponent.name,
+    win,
+    setWins,
+    setLosses,
+  );
+  const realStandings = calculateLeagueStandings(leagueState.results);
+  const realTeamRank =
+    realStandings.findIndex((row) => row.team === "VORTEX") + 1;
   const record = {
     round: matchInfo.round,
     date: current.date,
@@ -2112,7 +2145,7 @@ export function completeObservedSecondTeamMatch(
     performanceScore: 0,
     playerParticipated: false,
     starterStats: watchedResult?.starterStats,
-  } as any;
+  };
   const next: GameState = {
     ...current,
     slot: "AFTERNOON",
@@ -2125,7 +2158,8 @@ export function completeObservedSecondTeamMatch(
         round: season.round + 1,
         wins,
         losses,
-        teamRank,
+        teamRank: realTeamRank || teamRank,
+        leagueState,
         matchHistory: [...season.matchHistory, record].slice(-20),
       },
       stamina: Math.max(0, current.player.stamina - 5),
@@ -2142,12 +2176,409 @@ export function completeObservedSecondTeamMatch(
   };
 }
 
+const LEAGUE_TEAM_META: Record<
+  SecondTeamLeagueTeamId,
+  { name: string; power: number }
+> = {
+  VORTEX: { name: "VORTEX 2군", power: 66 },
+  NOVA: { name: "NOVA 2군", power: 61 },
+  RAVEN: { name: "RAVEN 2군", power: 65 },
+  APEX: { name: "APEX 2군", power: 68 },
+  ZERO: { name: "ZERO 2군", power: 63 },
+  ORBIT: { name: "ORBIT 2군", power: 70 },
+  TITAN: { name: "TITAN 2군", power: 72 },
+  PULSE: { name: "PULSE 2군", power: 64 },
+  ECLIPSE: { name: "ECLIPSE 2군", power: 69 },
+  PHANTOM: { name: "PHANTOM 2군", power: 67 },
+};
+
+const LEAGUE_TEAM_IDS = Object.keys(
+  LEAGUE_TEAM_META,
+) as SecondTeamLeagueTeamId[];
+const VORTEX_FIRST_HALF: SecondTeamLeagueTeamId[] = [
+  "NOVA",
+  "RAVEN",
+  "APEX",
+  "ZERO",
+  "ORBIT",
+  "TITAN",
+  "PULSE",
+  "ECLIPSE",
+  "PHANTOM",
+];
+
+const NPC_ROSTERS: Record<
+  Exclude<SecondTeamLeagueTeamId, "VORTEX">,
+  Record<Position, string>
+> = {
+  NOVA: {
+    TOP: "SOL",
+    JUNGLE: "MOSS",
+    MID: "LUCID",
+    BOT: "RAY",
+    SUPPORT: "MINT",
+  },
+  RAVEN: {
+    TOP: "CROW",
+    JUNGLE: "DUSK",
+    MID: "FATE",
+    BOT: "JUNE",
+    SUPPORT: "ONYX",
+  },
+  APEX: {
+    TOP: "ZEAL",
+    JUNGLE: "RUNE",
+    MID: "MAVE",
+    BOT: "SION",
+    SUPPORT: "ARC",
+  },
+  ZERO: {
+    TOP: "NERO",
+    JUNGLE: "VOID",
+    MID: "NEON",
+    BOT: "BOLT",
+    SUPPORT: "HALO",
+  },
+  ORBIT: {
+    TOP: "ATLAS",
+    JUNGLE: "COMET",
+    MID: "VEIL",
+    BOT: "NOVA",
+    SUPPORT: "MOON",
+  },
+  TITAN: {
+    TOP: "ARES",
+    JUNGLE: "LYNX",
+    MID: "KAI",
+    BOT: "REX",
+    SUPPORT: "NOAH",
+  },
+  PULSE: {
+    TOP: "ROOK",
+    JUNGLE: "BEAT",
+    MID: "SYNC",
+    BOT: "VOLT",
+    SUPPORT: "ECHO",
+  },
+  ECLIPSE: {
+    TOP: "UMBRA",
+    JUNGLE: "SHADE",
+    MID: "LUNE",
+    BOT: "FLARE",
+    SUPPORT: "MIST",
+  },
+  PHANTOM: {
+    TOP: "GHOST",
+    JUNGLE: "WISP",
+    MID: "KAIN",
+    BOT: "BLUR",
+    SUPPORT: "PALE",
+  },
+};
+
+function teamIdFromDisplayName(name: string): SecondTeamLeagueTeamId {
+  const normalized = name.replace(" 2군", "").toUpperCase();
+  return (LEAGUE_TEAM_IDS.find((id) => id === normalized) ??
+    "NOVA") as SecondTeamLeagueTeamId;
+}
+
+function createNpcLeaguePlayers(): SecondTeamLeaguePlayerStat[] {
+  const positions: Position[] = ["TOP", "JUNGLE", "MID", "BOT", "SUPPORT"];
+  return (
+    Object.keys(NPC_ROSTERS) as Exclude<SecondTeamLeagueTeamId, "VORTEX">[]
+  ).flatMap((team) =>
+    positions.map((position) => ({
+      id: `${team}-${position}`,
+      name: NPC_ROSTERS[team][position],
+      team,
+      position,
+      games: 0,
+      kills: 0,
+      deaths: 0,
+      assists: 0,
+    })),
+  );
+}
+
+function getSecondTeamLeagueState(state: GameState): SecondTeamLeagueState {
+  const raw = (state.player.secondTeamSeason as any)?.leagueState as
+    | SecondTeamLeagueState
+    | undefined;
+  return {
+    results: Array.isArray(raw?.results) ? raw!.results : [],
+    players: Array.isArray(raw?.players)
+      ? raw!.players
+      : createNpcLeaguePlayers(),
+  };
+}
+
+// 9개 비-VORTEX 팀끼리 9라운드 라운드로빈을 만들면 매 라운드 정확히 한 팀이 bye.
+// 그 bye 팀을 해당 라운드 VORTEX 상대로 매칭하면 10팀 완전 라운드로빈이 된다.
+function createFirstHalfLeagueRounds() {
+  const nonVortex = VORTEX_FIRST_HALF.slice();
+  const withBye: (SecondTeamLeagueTeamId | "BYE")[] = [...nonVortex, "BYE"];
+  const rounds: { a: SecondTeamLeagueTeamId; b: SecondTeamLeagueTeamId }[][] =
+    [];
+
+  for (let rawRound = 0; rawRound < 9; rawRound += 1) {
+    const pairs: { a: SecondTeamLeagueTeamId; b: SecondTeamLeagueTeamId }[] =
+      [];
+    let byeTeam: SecondTeamLeagueTeamId | null = null;
+
+    for (let i = 0; i < withBye.length / 2; i += 1) {
+      const left = withBye[i];
+      const right = withBye[withBye.length - 1 - i];
+      if (left === "BYE") byeTeam = right as SecondTeamLeagueTeamId;
+      else if (right === "BYE") byeTeam = left as SecondTeamLeagueTeamId;
+      else
+        pairs.push({
+          a: left as SecondTeamLeagueTeamId,
+          b: right as SecondTeamLeagueTeamId,
+        });
+    }
+
+    if (byeTeam) pairs.unshift({ a: "VORTEX", b: byeTeam });
+    rounds.push(pairs);
+
+    const fixed = withBye[0];
+    const rest = withBye.slice(1);
+    rest.unshift(rest.pop()!);
+    withBye.splice(0, withBye.length, fixed, ...rest);
+  }
+
+  // Circle method의 bye 순서 대신 기존 VORTEX 일정 순서를 보존한다.
+  // 각 round에서 VORTEX 상대가 원하는 상대가 되도록 round 자체를 재정렬한다.
+  return VORTEX_FIRST_HALF.map((opponent) => {
+    const found = rounds.find((round) =>
+      round.some(
+        (pair) =>
+          (pair.a === "VORTEX" && pair.b === opponent) ||
+          (pair.b === "VORTEX" && pair.a === opponent),
+      ),
+    );
+    return found ?? [];
+  });
+}
+
+const FIRST_HALF_LEAGUE_ROUNDS = createFirstHalfLeagueRounds();
+
+function getLeagueRoundPairs(round: number) {
+  const normalized = Math.max(1, Math.min(18, round));
+  if (normalized <= 9) return FIRST_HALF_LEAGUE_ROUNDS[normalized - 1];
+
+  // 기존 VORTEX 일정은 후반 9경기가 전반 상대의 역순이다.
+  // 10R=PHANTOM, 11R=ECLIPSE ... 18R=NOVA 순서를 그대로 맞춘다.
+  const secondHalfIndex = 18 - normalized;
+  return FIRST_HALF_LEAGUE_ROUNDS[secondHalfIndex].map((pair) => ({
+    a: pair.b,
+    b: pair.a,
+  }));
+}
+
+function simulateNpcSeries(
+  state: GameState,
+  round: number,
+  teamA: SecondTeamLeagueTeamId,
+  teamB: SecondTeamLeagueTeamId,
+): SecondTeamLeagueMatchResult {
+  const powerA = LEAGUE_TEAM_META[teamA].power;
+  const powerB = LEAGUE_TEAM_META[teamB].power;
+  const roll = stableNumber(
+    `${state.player.secondTeamSeason.year ?? 2027}|${state.player.secondTeamSeason.split ?? "SPRING"}|R${round}|${teamA}|${teamB}|result`,
+  );
+  const chanceA = Math.max(
+    0.18,
+    Math.min(0.82, 0.5 + (powerA - powerB) * 0.035),
+  );
+  const winner = roll < chanceA ? teamA : teamB;
+  const loser = winner === teamA ? teamB : teamA;
+  const sweepRoll = stableNumber(`R${round}|${winner}|${loser}|sets`);
+  const loserSets = sweepRoll < 0.47 ? 0 : 1;
+
+  return {
+    round,
+    teamA,
+    teamB,
+    winner,
+    teamASets: winner === teamA ? 2 : loserSets,
+    teamBSets: winner === teamB ? 2 : loserSets,
+  };
+}
+
+function addNpcPlayerSeries(
+  players: SecondTeamLeaguePlayerStat[],
+  state: GameState,
+  result: SecondTeamLeagueMatchResult,
+) {
+  const next = players.map((player) => ({ ...player }));
+  const teams = [result.teamA, result.teamB].filter(
+    (team): team is Exclude<SecondTeamLeagueTeamId, "VORTEX"> =>
+      team !== "VORTEX",
+  );
+
+  for (const team of teams) {
+    const won = result.winner === team;
+    const sets =
+      result.teamA === team
+        ? result.teamASets + result.teamBSets
+        : result.teamASets + result.teamBSets;
+
+    next.forEach((player) => {
+      if (player.team !== team) return;
+      const seed = `${result.round}|${team}|${player.position}|${player.name}`;
+      const positionKillBase =
+        player.position === "BOT"
+          ? 3.8
+          : player.position === "MID"
+            ? 3.2
+            : player.position === "JUNGLE"
+              ? 2.5
+              : player.position === "TOP"
+                ? 2.3
+                : 0.8;
+      const assistBase =
+        player.position === "SUPPORT"
+          ? 6.4
+          : player.position === "JUNGLE"
+            ? 5.2
+            : 3.7;
+      const kills = Math.max(
+        0,
+        Math.round(
+          sets *
+            (positionKillBase +
+              stableNumber(seed + "|k") * 2.2 +
+              (won ? 0.5 : -0.2)),
+        ),
+      );
+      const deaths = Math.max(
+        1,
+        Math.round(
+          sets * (1.5 + stableNumber(seed + "|d") * 1.6 + (won ? -0.2 : 0.35)),
+        ),
+      );
+      const assists = Math.max(
+        0,
+        Math.round(
+          sets *
+            (assistBase + stableNumber(seed + "|a") * 3.0 + (won ? 0.8 : 0)),
+        ),
+      );
+
+      player.games += 1;
+      player.kills += kills;
+      player.deaths += deaths;
+      player.assists += assists;
+    });
+  }
+
+  return next;
+}
+
+function applyCompletedLeagueRound(
+  state: GameState,
+  round: number,
+  vortexOpponentName: string,
+  vortexWin: boolean,
+  vortexSetWins: number,
+  vortexSetLosses: number,
+) {
+  const league = getSecondTeamLeagueState(state);
+  if (league.results.some((result) => result.round === round)) return league;
+
+  const opponent = teamIdFromDisplayName(vortexOpponentName);
+  const scheduledPairs = getLeagueRoundPairs(round);
+  const vortexPair = scheduledPairs.find(
+    (pair) => pair.a === "VORTEX" || pair.b === "VORTEX",
+  );
+  const vortexTeamA = vortexPair?.a ?? "VORTEX";
+  const vortexTeamB = vortexPair?.b ?? opponent;
+  const winner: SecondTeamLeagueTeamId = vortexWin ? "VORTEX" : opponent;
+
+  const vortexResult: SecondTeamLeagueMatchResult = {
+    round,
+    teamA: vortexTeamA,
+    teamB: vortexTeamB,
+    winner,
+    teamASets: vortexTeamA === "VORTEX" ? vortexSetWins : vortexSetLosses,
+    teamBSets: vortexTeamB === "VORTEX" ? vortexSetWins : vortexSetLosses,
+  };
+
+  let players = league.players;
+  const newResults: SecondTeamLeagueMatchResult[] = [vortexResult];
+
+  for (const pair of scheduledPairs) {
+    if (pair.a === "VORTEX" || pair.b === "VORTEX") continue;
+    const simulated = simulateNpcSeries(state, round, pair.a, pair.b);
+    newResults.push(simulated);
+    players = addNpcPlayerSeries(players, state, simulated);
+  }
+
+  return {
+    results: [...league.results, ...newResults],
+    players,
+  };
+}
+
+function calculateLeagueStandings(results: SecondTeamLeagueMatchResult[]) {
+  const table = new Map<
+    SecondTeamLeagueTeamId,
+    { wins: number; losses: number; setWins: number; setLosses: number }
+  >();
+  LEAGUE_TEAM_IDS.forEach((team) =>
+    table.set(team, { wins: 0, losses: 0, setWins: 0, setLosses: 0 }),
+  );
+
+  results.forEach((result) => {
+    const a = table.get(result.teamA)!;
+    const b = table.get(result.teamB)!;
+    a.setWins += result.teamASets;
+    a.setLosses += result.teamBSets;
+    b.setWins += result.teamBSets;
+    b.setLosses += result.teamASets;
+    if (result.winner === result.teamA) {
+      a.wins += 1;
+      b.losses += 1;
+    } else {
+      b.wins += 1;
+      a.losses += 1;
+    }
+  });
+
+  const headToHead = (a: SecondTeamLeagueTeamId, b: SecondTeamLeagueTeamId) => {
+    const matches = results.filter(
+      (result) =>
+        (result.teamA === a && result.teamB === b) ||
+        (result.teamA === b && result.teamB === a),
+    );
+    return matches.reduce(
+      (score, result) =>
+        score + (result.winner === a ? 1 : result.winner === b ? -1 : 0),
+      0,
+    );
+  };
+
+  return LEAGUE_TEAM_IDS.map((team) => {
+    const row = table.get(team)!;
+    return { team, ...row, setDiff: row.setWins - row.setLosses };
+  }).sort(
+    (a, b) =>
+      b.wins - a.wins ||
+      b.setDiff - a.setDiff ||
+      headToHead(b.team, a.team) ||
+      LEAGUE_TEAM_META[b.team].power - LEAGUE_TEAM_META[a.team].power,
+  );
+}
+
 export interface LeagueStandingRow {
   rank: number;
   team: string;
   wins: number;
   losses: number;
   winRate: number;
+  setWins: number;
+  setLosses: number;
+  setDiff: number;
   isMyTeam: boolean;
 }
 export interface KdaRankingRow {
@@ -2207,73 +2638,39 @@ const NPC_NAMES = [
 ];
 
 export function getLeagueDashboard(state: GameState) {
-  const season = state.player.secondTeamSeason;
-  const playedRounds = Math.max(0, season.round - 1);
-  const standings: LeagueStandingRow[] = LEAGUE_TEAMS.map((team) => {
-    if (team === "VORTEX 2군")
-      return {
-        rank: 0,
-        team,
-        wins: season.wins,
-        losses: season.losses,
-        winRate:
-          season.wins + season.losses
-            ? season.wins / (season.wins + season.losses)
-            : 0,
-        isMyTeam: true,
-      };
-    const wins =
-      playedRounds === 0
-        ? 0
-        : Math.max(
-            0,
-            Math.min(
-              playedRounds,
-              Math.round(
-                stableNumber(`${team}|${playedRounds}|standings`) *
-                  playedRounds,
-              ),
-            ),
-          );
-    return {
-      rank: 0,
-      team,
-      wins,
-      losses: playedRounds - wins,
-      winRate: playedRounds ? wins / playedRounds : 0,
-      isMyTeam: false,
-    };
-  })
-    .sort(
-      (a, b) => b.wins - a.wins || a.losses - b.losses || b.winRate - a.winRate,
-    )
-    .map((r, i) => ({ ...r, rank: i + 1 }));
+  const league = getSecondTeamLeagueState(state);
+  const calculated = calculateLeagueStandings(league.results);
 
-  const positions: Position[] = ["TOP", "JUNGLE", "MID", "BOT", "SUPPORT"];
-  const npcKda: KdaRankingRow[] = NPC_NAMES.slice(0, 15).map((name, i) => {
-    const games = Math.max(1, playedRounds),
-      deaths = Math.max(
-        1,
-        Math.round(games * (1.2 + stableNumber(name + "d") * 2.6)),
-      );
-    const kills = Math.round(games * (1 + stableNumber(name + "k") * 3.8)),
-      assists = Math.round(games * (2 + stableNumber(name + "a") * 5.5));
-    return {
+  const standings: LeagueStandingRow[] = calculated.map((row, index) => ({
+    rank: index + 1,
+    team: LEAGUE_TEAM_META[row.team].name,
+    wins: row.wins,
+    losses: row.losses,
+    winRate: row.wins + row.losses ? row.wins / (row.wins + row.losses) : 0,
+    setWins: row.setWins,
+    setLosses: row.setLosses,
+    setDiff: row.setDiff,
+    isMyTeam: row.team === "VORTEX",
+  }));
+
+  const npcKda: KdaRankingRow[] = league.players
+    .filter((player) => player.games > 0)
+    .map((player) => ({
       rank: 0,
-      name,
-      team: LEAGUE_TEAMS[(i % 9) + 1],
-      position: positions[i % 5],
-      games,
-      kills,
-      deaths,
-      assists,
-      kda: (kills + assists) / deaths,
+      name: player.name,
+      team: LEAGUE_TEAM_META[player.team].name,
+      position: player.position,
+      games: player.games,
+      kills: player.kills,
+      deaths: player.deaths,
+      assists: player.assists,
+      kda: (player.kills + player.assists) / Math.max(1, player.deaths),
       isPlayer: false,
-    };
-  });
+    }));
+
   const ps = state.player.seasonStats;
   const kdaRows = [...npcKda];
-  if (ps.games > 0)
+  if (ps.games > 0) {
     kdaRows.push({
       rank: 0,
       name: state.player.name,
@@ -2286,30 +2683,42 @@ export function getLeagueDashboard(state: GameState) {
       kda: (ps.kills + ps.assists) / Math.max(1, ps.deaths),
       isPlayer: true,
     });
-  const kda = kdaRows
-    .sort((a, b) => b.kda - a.kda)
-    .map((r, i) => ({ ...r, rank: i + 1 }));
+  }
 
-  const laneNpc: LaneRankingRow[] = Array.from({ length: 8 }, (_, i) => {
-    const name = NPC_NAMES[(i + 3) % NPC_NAMES.length];
-    return {
-      rank: 0,
-      name,
-      team: LEAGUE_TEAMS[(i % 9) + 1],
-      position: state.player.position,
-      score: Math.round(
-        58 + stableNumber(`${name}|${state.player.position}|lane`) * 28,
-      ),
-      isPlayer: false,
-    };
-  });
+  const kda = kdaRows
+    .sort(
+      (a, b) =>
+        b.kda - a.kda ||
+        b.games - a.games ||
+        b.kills + b.assists - (a.kills + a.assists),
+    )
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  const sameLaneNpcs = league.players
+    .filter(
+      (player) => player.position === state.player.position && player.games > 0,
+    )
+    .map((player) => {
+      const kda = (player.kills + player.assists) / Math.max(1, player.deaths);
+      return {
+        rank: 0,
+        name: player.name,
+        team: LEAGUE_TEAM_META[player.team].name,
+        position: player.position,
+        score: Math.round(
+          45 + Math.min(45, kda * 6) + Math.min(10, player.games * 0.6),
+        ),
+        isPlayer: false,
+      } satisfies LaneRankingRow;
+    });
+
   const playerLaneScore = Math.round(
     calculateOvr(state.player.stats, state.player.position) * 0.55 +
       state.player.coachTrust * 0.2 +
       state.player.starterCompetition * 0.25,
   );
   const lane = [
-    ...laneNpc,
+    ...sameLaneNpcs,
     {
       rank: 0,
       name: state.player.name,
@@ -2320,6 +2729,12 @@ export function getLeagueDashboard(state: GameState) {
     },
   ]
     .sort((a, b) => b.score - a.score)
-    .map((r, i) => ({ ...r, rank: i + 1 }));
-  return { standings, kda, lane };
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  return {
+    standings,
+    kda,
+    lane,
+    completedRounds: new Set(league.results.map((result) => result.round)).size,
+  };
 }

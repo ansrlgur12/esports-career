@@ -342,6 +342,8 @@ export default function MatchScreen() {
       isSecondTeamOfficial && totalPlayedSets === 0
         ? completeObservedSecondTeamMatch(game, {
             win: seriesWin,
+            setWins: finalTeamWins,
+            setLosses: finalEnemyWins,
             starterStats,
           }).state
         : isSecondTeamOfficial
@@ -353,6 +355,8 @@ export default function MatchScreen() {
               performanceScore: Math.round(
                 totalPerformance / Math.max(1, totalPlayedSets),
               ),
+              setWins: finalTeamWins,
+              setLosses: finalEnemyWins,
               starterStats,
             })
           : isAcademyEvaluation
