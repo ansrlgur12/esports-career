@@ -19,6 +19,7 @@ import {
   SecondTeamPlayoffState,
   SecondTeamStarterSeriesStats,
   SecondTeamTiebreakerResult,
+  SplitPhase,
   StatKey,
   Stats,
   StatXp,
@@ -358,10 +359,42 @@ export function getSecondTeamMatchInfo(state: GameState) {
   const opponent =
     SECOND_TEAM_OPPONENTS.find((item) => item.name === scheduledName) ??
     SECOND_TEAM_OPPONENTS[(season.round - 1) % SECOND_TEAM_OPPONENTS.length];
+  const pendingPlayoff =
+    season.phase === "PLAYOFFS"
+      ? getPendingSecondTeamPlayoff(state)
+      : undefined;
+  const calendarInfo = getLeagueCalendarInfo(state.date);
+  const playoffIndex = calendarInfo.playoffDates.indexOf(state.date);
+  const scheduledPlayoffStage =
+    playoffIndex === 0
+      ? "WILDCARD"
+      : playoffIndex === 1
+        ? "ROUND1"
+        : playoffIndex === 2
+          ? "ROUND2"
+          : playoffIndex === 3
+            ? "FINAL"
+            : undefined;
+  const playoffOpponentId = pendingPlayoff
+    ? pendingPlayoff.teamA === "VORTEX"
+      ? pendingPlayoff.teamB
+      : pendingPlayoff.teamA
+    : undefined;
+  const playoffOpponent = playoffOpponentId
+    ? SECOND_TEAM_OPPONENTS.find(
+        (item) => item.name === `${playoffOpponentId} 2군`,
+      )
+    : undefined;
   return {
     round: season.round,
-    opponent,
+    opponent: playoffOpponent ?? opponent,
     teamPower: season.teamPower,
+    isPlayoff: Boolean(pendingPlayoff),
+    playoffStage: pendingPlayoff?.stage,
+    bestOf: pendingPlayoff?.bestOf ?? 3,
+    playoffPlayableToday:
+      Boolean(pendingPlayoff) &&
+      scheduledPlayoffStage === pendingPlayoff?.stage,
   };
 }
 
@@ -2804,61 +2837,95 @@ function simulatePlayoffSeries(
   };
 }
 
-function createAndResolvePlayoffs(
+function playoffSeriesSpec(
+  seeds: SecondTeamLeagueTeamId[],
+  stage: Exclude<SecondTeamPlayoffStage, "COMPLETE">,
+  previousWinner?: SecondTeamLeagueTeamId,
+) {
+  if (stage === "WILDCARD")
+    return { teamA: seeds[3], teamB: seeds[4], bestOf: 3 as const };
+  if (stage === "ROUND1")
+    return { teamA: seeds[2], teamB: previousWinner!, bestOf: 5 as const };
+  if (stage === "ROUND2")
+    return { teamA: seeds[1], teamB: previousWinner!, bestOf: 5 as const };
+  return { teamA: seeds[0], teamB: previousWinner!, bestOf: 5 as const };
+}
+
+function nextPlayoffStage(
+  stage: Exclude<SecondTeamPlayoffStage, "COMPLETE">,
+): SecondTeamPlayoffStage {
+  if (stage === "WILDCARD") return "ROUND1";
+  if (stage === "ROUND1") return "ROUND2";
+  if (stage === "ROUND2") return "FINAL";
+  return "COMPLETE";
+}
+
+function advancePlayoffsUntilPlayerMatch(
+  state: GameState,
+  league: SecondTeamLeagueState,
+  playoffs: SecondTeamPlayoffState,
+): SecondTeamPlayoffState {
+  let current = {
+    ...playoffs,
+    series: [...playoffs.series],
+    pendingSeries: playoffs.pendingSeries,
+  };
+  while (current.currentStage !== "COMPLETE" && !current.pendingSeries) {
+    const stage = current.currentStage;
+    const previousWinner = current.series[current.series.length - 1]?.winner;
+    const spec = playoffSeriesSpec(current.seedOrder, stage, previousWinner);
+    const pending: SecondTeamPlayoffSeries = {
+      stage,
+      teamA: spec.teamA,
+      teamB: spec.teamB,
+      bestOf: spec.bestOf,
+      teamAWins: 0,
+      teamBWins: 0,
+    };
+
+    if (spec.teamA === "VORTEX" || spec.teamB === "VORTEX") {
+      current = { ...current, pendingSeries: pending };
+      break;
+    }
+
+    const resolved = simulatePlayoffSeries(
+      state,
+      league,
+      stage,
+      spec.teamA,
+      spec.teamB,
+      spec.bestOf,
+    );
+    const nextStage = nextPlayoffStage(stage);
+    current = {
+      ...current,
+      currentStage: nextStage,
+      series: [...current.series, resolved],
+      champion: nextStage === "COMPLETE" ? resolved.winner : current.champion,
+      vortexEliminated:
+        current.vortexQualified && !current.seedOrder.includes("VORTEX"),
+    };
+  }
+  return current;
+}
+
+function createPlayoffs(
   state: GameState,
   league: SecondTeamLeagueState,
 ): SecondTeamPlayoffState {
   const final = resolveFinalStandings(state, league);
   const seeds = final.standings.slice(0, 5).map((r) => r.team);
-  const series: SecondTeamPlayoffSeries[] = [];
-
-  const wc = simulatePlayoffSeries(
-    state,
-    league,
-    "WILDCARD",
-    seeds[3],
-    seeds[4],
-    3,
-  );
-  series.push(wc);
-  const r1 = simulatePlayoffSeries(
-    state,
-    league,
-    "ROUND1",
-    seeds[2],
-    wc.winner!,
-    5,
-  );
-  series.push(r1);
-  const r2 = simulatePlayoffSeries(
-    state,
-    league,
-    "ROUND2",
-    seeds[1],
-    r1.winner!,
-    5,
-  );
-  series.push(r2);
-  const fin = simulatePlayoffSeries(
-    state,
-    league,
-    "FINAL",
-    seeds[0],
-    r2.winner!,
-    5,
-  );
-  series.push(fin);
-
-  return {
+  const initial: SecondTeamPlayoffState = {
     qualifiedTeams: seeds,
     seedOrder: seeds,
     tiebreakers: final.tiebreakers,
-    currentStage: "COMPLETE",
-    series,
-    champion: fin.winner,
+    currentStage: "WILDCARD",
+    series: [],
+    champion: undefined,
     vortexQualified: seeds.includes("VORTEX"),
-    vortexEliminated: fin.winner !== "VORTEX",
+    vortexEliminated: !seeds.includes("VORTEX"),
   };
+  return advancePlayoffsUntilPlayerMatch(state, league, initial);
 }
 
 function ensurePlayoffs(
@@ -2870,8 +2937,118 @@ function ensurePlayoffs(
       .filter((r) => r.round >= 1 && r.round <= 18)
       .map((r) => r.round),
   ).size;
-  if (completedRounds < 18 || league.playoffs) return league;
-  return { ...league, playoffs: createAndResolvePlayoffs(state, league) };
+  if (completedRounds < 18) return league;
+  if (league.playoffs) return league;
+  return { ...league, playoffs: createPlayoffs(state, league) };
+}
+
+export function getPendingSecondTeamPlayoff(state: GameState) {
+  const league = ensurePlayoffs(state, getSecondTeamLeagueState(state));
+  return league.playoffs?.pendingSeries;
+}
+
+export function completeSecondTeamPlayoffMatch(
+  state: GameState,
+  result: {
+    win: boolean;
+    playerKills: number;
+    playerDeaths: number;
+    playerAssists: number;
+    performanceScore: number;
+    setWins: number;
+    setLosses: number;
+    starterStats?: SecondTeamStarterSeriesStats;
+    playerParticipated: boolean;
+  },
+) {
+  const league = ensurePlayoffs(state, getSecondTeamLeagueState(state));
+  const playoffs = league.playoffs;
+  const pending = playoffs?.pendingSeries;
+  if (
+    !playoffs ||
+    !pending ||
+    ![pending.teamA, pending.teamB].includes("VORTEX")
+  ) {
+    return state;
+  }
+
+  const vortexIsA = pending.teamA === "VORTEX";
+  const winner: SecondTeamLeagueTeamId = result.win
+    ? "VORTEX"
+    : vortexIsA
+      ? pending.teamB
+      : pending.teamA;
+  const resolved: SecondTeamPlayoffSeries = {
+    ...pending,
+    teamAWins: vortexIsA ? result.setWins : result.setLosses,
+    teamBWins: vortexIsA ? result.setLosses : result.setWins,
+    winner,
+  };
+
+  let updatedLeague = applySeriesToLivingRosters(
+    league,
+    {
+      round: 19 + playoffs.series.length,
+      teamA: pending.teamA,
+      teamB: pending.teamB,
+      winner,
+      teamASets: resolved.teamAWins,
+      teamBSets: resolved.teamBWins,
+    },
+    state.player.position,
+    result.starterStats,
+  );
+
+  const nextStage = nextPlayoffStage(pending.stage);
+  let nextPlayoffs: SecondTeamPlayoffState = {
+    ...playoffs,
+    pendingSeries: undefined,
+    series: [...playoffs.series, resolved],
+    currentStage: nextStage,
+    champion: nextStage === "COMPLETE" ? winner : playoffs.champion,
+    vortexEliminated: playoffs.vortexEliminated || winner !== "VORTEX",
+  };
+
+  if (winner === "VORTEX" && nextStage !== "COMPLETE") {
+    nextPlayoffs = advancePlayoffsUntilPlayerMatch(
+      state,
+      updatedLeague,
+      nextPlayoffs,
+    );
+  } else if (winner !== "VORTEX") {
+    // VORTEX 탈락 후 남은 NPC 포스트시즌은 즉시 끝까지 진행한다.
+    nextPlayoffs = advancePlayoffsUntilPlayerMatch(state, updatedLeague, {
+      ...nextPlayoffs,
+      pendingSeries: undefined,
+    });
+  }
+
+  updatedLeague = { ...updatedLeague, playoffs: nextPlayoffs };
+  const ps = state.player.seasonStats;
+  return {
+    ...state,
+    slot: "AFTERNOON" as TimeSlot,
+    actionSeed: state.actionSeed + 401,
+    player: {
+      ...state.player,
+      morningEventCompletedDate: state.date,
+      seasonStats: result.playerParticipated
+        ? {
+            games: ps.games + 1,
+            kills: ps.kills + result.playerKills,
+            deaths: ps.deaths + result.playerDeaths,
+            assists: ps.assists + result.playerAssists,
+          }
+        : ps,
+      secondTeamSeason: {
+        ...state.player.secondTeamSeason,
+        phase: (nextPlayoffs.currentStage === "COMPLETE"
+          ? "OFFSEASON"
+          : "PLAYOFFS") as SplitPhase,
+        leagueState: updatedLeague,
+      },
+    },
+  };
 }
 
 export interface LeagueStandingRow {
@@ -3077,6 +3254,6 @@ export function getLeagueDashboard(state: GameState) {
     tiebreakers: league.playoffs?.tiebreakers ?? resolved?.tiebreakers ?? [],
     playoffs:
       league.playoffs ??
-      (regularComplete ? createAndResolvePlayoffs(state, league) : undefined),
+      (regularComplete ? createPlayoffs(state, league) : undefined),
   };
 }

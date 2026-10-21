@@ -173,6 +173,7 @@ export interface SecondTeamPlayoffState {
   tiebreakers: SecondTeamTiebreakerResult[];
   currentStage: SecondTeamPlayoffStage;
   series: SecondTeamPlayoffSeries[];
+  pendingSeries?: SecondTeamPlayoffSeries;
   champion?: SecondTeamLeagueTeamId;
   vortexQualified: boolean;
   vortexEliminated: boolean;

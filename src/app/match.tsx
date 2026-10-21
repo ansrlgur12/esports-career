@@ -16,6 +16,7 @@ import {
     completeAcademyScrim,
     completeObservedSecondTeamMatch,
     completeSecondTeamMatch,
+    completeSecondTeamPlayoffMatch,
     decideSecondTeamNextSetRole,
     getDayType,
     getSecondTeamMatchInfo,
@@ -75,6 +76,17 @@ export default function MatchScreen() {
         ) {
           router.replace("/home");
           return;
+        }
+
+        if (
+          dayType === "SECOND_TEAM_MATCH" &&
+          loaded.player.secondTeamSeason.phase === "PLAYOFFS"
+        ) {
+          const info = getSecondTeamMatchInfo(loaded);
+          if (!info.isPlayoff || !info.playoffPlayableToday) {
+            router.replace("/home");
+            return;
+          }
         }
 
         setGame(loaded);
@@ -339,42 +351,56 @@ export default function MatchScreen() {
     const seriesWin = finalTeamWins > finalEnemyWins;
 
     const next =
-      isSecondTeamOfficial && totalPlayedSets === 0
-        ? completeObservedSecondTeamMatch(game, {
+      isSecondTeamOfficial && secondTeamMatch?.isPlayoff
+        ? completeSecondTeamPlayoffMatch(game, {
             win: seriesWin,
+            playerKills: totalKills,
+            playerDeaths: totalDeaths,
+            playerAssists: totalAssists,
+            performanceScore: Math.round(
+              totalPerformance / Math.max(1, totalPlayedSets),
+            ),
             setWins: finalTeamWins,
             setLosses: finalEnemyWins,
             starterStats,
-          }).state
-        : isSecondTeamOfficial
-          ? completeSecondTeamMatch(game, {
+            playerParticipated: totalPlayedSets > 0,
+          })
+        : isSecondTeamOfficial && totalPlayedSets === 0
+          ? completeObservedSecondTeamMatch(game, {
               win: seriesWin,
-              playerKills: totalKills,
-              playerDeaths: totalDeaths,
-              playerAssists: totalAssists,
-              performanceScore: Math.round(
-                totalPerformance / Math.max(1, totalPlayedSets),
-              ),
               setWins: finalTeamWins,
               setLosses: finalEnemyWins,
               starterStats,
-            })
-          : isAcademyEvaluation
-            ? completeAcademyEvaluation(game, {
-                grade: result.grade,
-                performanceScore: result.performanceScore,
-                win: result.win,
-                coachTrustDelta: result.coachTrustDelta,
-                starterCompetitionDelta: result.starterCompetitionDelta,
+            }).state
+          : isSecondTeamOfficial
+            ? completeSecondTeamMatch(game, {
+                win: seriesWin,
+                playerKills: totalKills,
+                playerDeaths: totalDeaths,
+                playerAssists: totalAssists,
+                performanceScore: Math.round(
+                  totalPerformance / Math.max(1, totalPlayedSets),
+                ),
+                setWins: finalTeamWins,
+                setLosses: finalEnemyWins,
+                starterStats,
               })
-            : completeAcademyScrim(game, {
-                grade: result.grade,
-                performanceScore: result.performanceScore,
-                win: result.win,
-                playerKills: result.playerKills,
-                playerDeaths: result.playerDeaths,
-                playerAssists: result.playerAssists,
-              });
+            : isAcademyEvaluation
+              ? completeAcademyEvaluation(game, {
+                  grade: result.grade,
+                  performanceScore: result.performanceScore,
+                  win: result.win,
+                  coachTrustDelta: result.coachTrustDelta,
+                  starterCompetitionDelta: result.starterCompetitionDelta,
+                })
+              : completeAcademyScrim(game, {
+                  grade: result.grade,
+                  performanceScore: result.performanceScore,
+                  win: result.win,
+                  playerKills: result.playerKills,
+                  playerDeaths: result.playerDeaths,
+                  playerAssists: result.playerAssists,
+                });
     await saveGame(next);
     router.replace("/home");
   }
@@ -383,22 +409,27 @@ export default function MatchScreen() {
     const r = match.result;
     const projectedTeamWins = seriesTeamWins + (r.win ? 1 : 0);
     const projectedEnemyWins = seriesEnemyWins + (r.win ? 0 : 1);
+    const winsNeeded = Math.ceil((secondTeamMatch?.bestOf ?? 3) / 2);
     const officialSeriesFinished =
       isSecondTeamOfficial &&
-      (projectedTeamWins >= 2 || projectedEnemyWins >= 2);
+      (projectedTeamWins >= winsNeeded || projectedEnemyWins >= winsNeeded);
 
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.resultScreen}>
           <Text style={styles.kicker}>
-            {isSecondTeamOfficial ? "SECOND TEAM LEAGUE" : "SCRIM COMPLETE"}
+            {isSecondTeamOfficial
+              ? secondTeamMatch?.isPlayoff
+                ? "SECOND TEAM PLAYOFFS"
+                : "SECOND TEAM LEAGUE"
+              : "SCRIM COMPLETE"}
           </Text>
           <Text style={styles.resultHeadline}>
             {isSecondTeamOfficial
               ? officialSeriesFinished
                 ? projectedTeamWins > projectedEnemyWins
-                  ? "BO3 승리"
-                  : "BO3 패배"
+                  ? `BO${secondTeamMatch?.bestOf ?? 3} 승리`
+                  : `BO${secondTeamMatch?.bestOf ?? 3} 패배`
                 : `${setNumber}세트 ${r.win ? "승리" : "패배"}`
               : r.win
                 ? "스크림 승리"
@@ -407,12 +438,17 @@ export default function MatchScreen() {
 
           {isSecondTeamOfficial && (
             <View style={styles.seriesCard}>
-              <Text style={styles.cardLabel}>BO3 · SET SCORE</Text>
+              <Text style={styles.cardLabel}>
+                BO{secondTeamMatch?.bestOf ?? 3} · SET SCORE
+              </Text>
               <Text style={styles.seriesScore}>
                 VORTEX {projectedTeamWins} : {projectedEnemyWins}{" "}
                 {secondTeamMatch?.opponent.name ?? "상대 2군"}
               </Text>
               <Text style={styles.smallText}>
+                {secondTeamMatch?.isPlayoff
+                  ? `${secondTeamMatch.playoffStage} · `
+                  : ""}
                 {setNumber}세트 종료 · 선수 교체는 세트 사이에만 가능합니다.
               </Text>
             </View>
