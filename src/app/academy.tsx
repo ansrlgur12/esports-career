@@ -10,11 +10,11 @@ import {
 } from "react-native";
 
 import {
-    getAcademyCallupCandidates,
+    getAcademyRank,
+    getAcademyStandings,
     getPositionStandings,
     getPromotionChanceLabel,
-    getTraineeRank,
-    getTraineeStandings,
+    getSecondTeamCallupCandidates,
 } from "../game/engine";
 import { loadGame } from "../storage/db";
 import { GameState } from "../types/game";
@@ -61,12 +61,12 @@ export default function AcademyScreen() {
     );
   }
 
-  const rank = getTraineeRank(game);
+  const rank = getAcademyRank(game);
   const promotion = getPromotionChanceLabel(game);
-  const standings = getTraineeStandings(game);
+  const standings = getAcademyStandings(game);
   const positionStandings = getPositionStandings(game);
-  const callupCandidates = getAcademyCallupCandidates(game);
-  const scrims = game.player.traineeScrimHistory ?? [];
+  const callupCandidates = getSecondTeamCallupCandidates(game);
+  const scrims = game.player.academyScrimHistory ?? [];
   const recentScrims = [...scrims].reverse().slice(0, 6);
   const wins = scrims.filter((x) => x.win).length;
   const losses = scrims.length - wins;

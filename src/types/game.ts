@@ -7,7 +7,7 @@ export type DayType =
   | "TRAINING"
   | "EVALUATION"
   | "SCRIM"
-  | "ACADEMY_MATCH"
+  | "SECOND_TEAM_MATCH"
   | "REST";
 
 export type StatKey =
@@ -53,7 +53,7 @@ export interface SeasonStats {
   assists: number;
 }
 
-export interface AcademyMatchRecord {
+export interface SecondTeamMatchRecord {
   round: number;
   date: string;
   opponentId: string;
@@ -66,17 +66,17 @@ export interface AcademyMatchRecord {
   performanceScore: number;
 }
 
-export interface AcademySeasonState {
+export interface SecondTeamSeasonState {
   round: number;
   wins: number;
   losses: number;
   teamRank: number;
   teamPower: number;
   firstTeamInterest: number;
-  matchHistory: AcademyMatchRecord[];
+  matchHistory: SecondTeamMatchRecord[];
 }
 
-export interface TraineeEvaluationRecord {
+export interface AcademyEvaluationRecord {
   date: string;
   grade: ScrimGrade;
   performanceScore: number;
@@ -98,7 +98,7 @@ export interface TraineeEvaluationRecord {
   promotionChanceAfter?: string;
 }
 
-export interface TraineeScrimRecord {
+export interface AcademyScrimRecord {
   date: string;
   grade: ScrimGrade;
   performanceScore: number;
@@ -108,14 +108,14 @@ export interface TraineeScrimRecord {
   assists: number;
 }
 
-export type TraineeRivalStyle =
+export type AcademyRivalStyle =
   | "PRODIGY"
   | "STEADY"
   | "SWINGY"
   | "WORKHORSE"
   | "SMART";
 
-export interface TraineeRival {
+export interface AcademyRival {
   id: string;
   name: string;
   position: Position;
@@ -128,10 +128,10 @@ export interface TraineeRival {
   evaluationScore: number;
   lastEvaluationGrade: ScrimGrade | null;
   trend: -1 | 0 | 1;
-  style: TraineeRivalStyle;
+  style: AcademyRivalStyle;
 }
 
-export interface AcademyCallupCandidate {
+export interface SecondTeamCallupCandidate {
   id: string;
   name: string;
   position: Position;
@@ -157,11 +157,11 @@ export interface PlayerState {
   annualSalary: number;
   morningEventCompletedDate: string | null;
   seasonStats: SeasonStats;
-  academySeason: AcademySeasonState;
-  evaluationHistory: TraineeEvaluationRecord[];
-  traineeScrimHistory: TraineeScrimRecord[];
-  traineeRivals: TraineeRival[];
-  academyPromotionReady: boolean;
+  secondTeamSeason: SecondTeamSeasonState;
+  evaluationHistory: AcademyEvaluationRecord[];
+  academyScrimHistory: AcademyScrimRecord[];
+  academyRivals: AcademyRival[];
+  secondTeamCallupReady: boolean;
 }
 
 export interface GameState {

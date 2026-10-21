@@ -11,11 +11,11 @@ import {
 } from "react-native";
 
 import {
-    completeAcademyMatch,
-    completeTraineeEvaluation,
-    completeTraineeScrim,
-    getAcademyMatchInfo,
+    completeAcademyEvaluation,
+    completeAcademyScrim,
+    completeSecondTeamMatch,
     getDayType,
+    getSecondTeamMatchInfo,
 } from "../game/engine";
 import {
     advanceScrim,
@@ -48,7 +48,7 @@ export default function MatchScreen() {
         if (
           dayType !== "EVALUATION" &&
           dayType !== "SCRIM" &&
-          dayType !== "ACADEMY_MATCH"
+          dayType !== "SECOND_TEAM_MATCH"
         ) {
           router.replace("/home");
           return;
@@ -77,9 +77,8 @@ export default function MatchScreen() {
           ? finishScrim(game, match)
           : advanceScrim(game, match);
 
-      setChoiceMessage(null);
       setMatch(next);
-    }, 1400);
+    }, 1900);
 
     return () => clearTimeout(timer);
   }, [game, match]);
@@ -96,10 +95,12 @@ export default function MatchScreen() {
 
   const moment = currentMoment(match);
   const matchDayType = getDayType(game.date, game.player.careerStage);
-  const isAcademyOfficial = matchDayType === "ACADEMY_MATCH";
-  const isTraineeEvaluation = matchDayType === "EVALUATION";
+  const isSecondTeamOfficial = matchDayType === "SECOND_TEAM_MATCH";
+  const isAcademyEvaluation = matchDayType === "EVALUATION";
   const isRegularScrim = matchDayType === "SCRIM";
-  const academyMatch = isAcademyOfficial ? getAcademyMatchInfo(game) : null;
+  const secondTeamMatch = isSecondTeamOfficial
+    ? getSecondTeamMatchInfo(game)
+    : null;
 
   async function choose(choice: ScrimChoice) {
     if (!game || !match) return;
@@ -109,8 +110,8 @@ export default function MatchScreen() {
 
     setChoiceMessage(
       resolved.success
-        ? `성공 · 선택이 경기 흐름에 긍정적으로 작용했습니다.`
-        : `실패 · 상대가 빈틈을 놓치지 않았습니다.`,
+        ? `성공 · ${choice.title} 선택이 적중했습니다.`
+        : `실패 · ${choice.title} 선택이 상대에게 읽혔습니다.`,
     );
     setMatch(resolved.state);
   }
@@ -122,23 +123,23 @@ export default function MatchScreen() {
   async function finishEvaluation() {
     if (!game || !match?.result) return;
     const result = match.result;
-    const next = isAcademyOfficial
-      ? completeAcademyMatch(game, {
+    const next = isSecondTeamOfficial
+      ? completeSecondTeamMatch(game, {
           win: result.win,
           playerKills: result.playerKills,
           playerDeaths: result.playerDeaths,
           playerAssists: result.playerAssists,
           performanceScore: result.performanceScore,
         })
-      : isTraineeEvaluation
-        ? completeTraineeEvaluation(game, {
+      : isAcademyEvaluation
+        ? completeAcademyEvaluation(game, {
             grade: result.grade,
             performanceScore: result.performanceScore,
             win: result.win,
             coachTrustDelta: result.coachTrustDelta,
             starterCompetitionDelta: result.starterCompetitionDelta,
           })
-        : completeTraineeScrim(game, {
+        : completeAcademyScrim(game, {
             grade: result.grade,
             performanceScore: result.performanceScore,
             win: result.win,
@@ -157,27 +158,27 @@ export default function MatchScreen() {
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.resultScreen}>
           <Text style={styles.kicker}>
-            {isAcademyOfficial ? "SECOND TEAM LEAGUE" : "SCRIM COMPLETE"}
+            {isSecondTeamOfficial ? "SECOND TEAM LEAGUE" : "SCRIM COMPLETE"}
           </Text>
           <Text style={styles.resultHeadline}>
             {r.win
-              ? isAcademyOfficial
+              ? isSecondTeamOfficial
                 ? "공식전 승리"
                 : "스크림 승리"
-              : isAcademyOfficial
+              : isSecondTeamOfficial
                 ? "공식전 패배"
                 : "스크림 패배"}
           </Text>
 
           <View style={styles.scoreCard}>
             <Text style={styles.teamName}>
-              {isAcademyOfficial ? "우리 2군" : "우리 ACADEMY"}
+              {isSecondTeamOfficial ? "우리 2군" : "우리 ACADEMY"}
             </Text>
             <Text style={styles.finalScore}>
               {r.teamKills} : {r.enemyKills}
             </Text>
             <Text style={styles.teamName}>
-              {academyMatch?.opponent.name ?? "NOVA ACADEMY"}
+              {secondTeamMatch?.opponent.name ?? "NOVA 2군"}
             </Text>
           </View>
 
@@ -191,7 +192,7 @@ export default function MatchScreen() {
             </Text>
           </View>
 
-          {isTraineeEvaluation && (
+          {isAcademyEvaluation && (
             <View style={styles.evaluationBreakdown}>
               <Text style={styles.cardLabel}>MONTHLY EVALUATION</Text>
               <Text style={styles.breakdownTitle}>월간 종합 평가 산정</Text>
@@ -225,7 +226,7 @@ export default function MatchScreen() {
             <View style={styles.gradeRow}>
               <View>
                 <Text style={styles.cardLabel}>
-                  {isAcademyOfficial
+                  {isSecondTeamOfficial
                     ? "공식전 평가"
                     : isRegularScrim
                       ? "스크림 피드백"
@@ -285,7 +286,7 @@ export default function MatchScreen() {
 
           <Pressable style={styles.primaryButton} onPress={finishEvaluation}>
             <Text style={styles.primaryButtonText}>
-              {isAcademyOfficial
+              {isSecondTeamOfficial
                 ? "경기 결과 확인"
                 : isRegularScrim
                   ? "스크림 종료"
@@ -302,21 +303,21 @@ export default function MatchScreen() {
       <View style={styles.screen}>
         <View style={styles.header}>
           <Text style={styles.kicker}>
-            {isAcademyOfficial
+            {isSecondTeamOfficial
               ? "ACADEMY LEAGUE · OFFICIAL"
               : isRegularScrim
                 ? "TEAM SCRIM"
                 : "ACADEMY EVALUATION · MONTHLY"}
           </Text>
           <Text style={styles.headerTitle}>
-            {isAcademyOfficial
+            {isSecondTeamOfficial
               ? "아카데미 리그"
               : isRegularScrim
                 ? "정기 스크림"
                 : "월간 연습생 평가전"}
           </Text>
           <Text style={styles.headerSub}>
-            {isAcademyOfficial
+            {isSecondTeamOfficial
               ? "공식전 · 경기 흐름은 자동 중계되며 중요한 순간에 직접 판단합니다."
               : "경기 상황은 자동으로 진행되고, 중요한 순간에만 직접 선택합니다."}
           </Text>
@@ -325,7 +326,7 @@ export default function MatchScreen() {
         <View style={styles.scoreboard}>
           <View style={styles.team}>
             <Text style={styles.teamName}>
-              {isAcademyOfficial ? "우리 2군" : "우리 ACADEMY"}
+              {isSecondTeamOfficial ? "우리 2군" : "우리 ACADEMY"}
             </Text>
             <Text style={styles.teamScore}>{match.teamKills}</Text>
           </View>
@@ -340,7 +341,7 @@ export default function MatchScreen() {
 
           <View style={styles.team}>
             <Text style={styles.teamName}>
-              {academyMatch?.opponent.name ?? "NOVA ACADEMY"}
+              {secondTeamMatch?.opponent.name ?? "NOVA 2군"}
             </Text>
             <Text style={styles.teamScore}>{match.enemyKills}</Text>
           </View>
@@ -409,7 +410,15 @@ export default function MatchScreen() {
                       {String(item.minute).padStart(2, "0")}:
                       {String(item.second ?? 0).padStart(2, "0")}
                     </Text>
-                    <Text style={styles.commentaryLine}>{item.text}</Text>
+                    <Text
+                      style={[
+                        styles.commentaryLine,
+                        item.text.startsWith("__CHOICE__") &&
+                          styles.choiceCommentaryLine,
+                      ]}
+                    >
+                      {item.text.replace("__CHOICE__", "")}
+                    </Text>
                   </View>
                 ))}
               </ScrollView>
@@ -730,6 +739,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "700",
+  },
+  choiceCommentaryLine: {
+    color: LIME,
+    fontWeight: "900",
   },
   liveDots: {
     flexDirection: "row",

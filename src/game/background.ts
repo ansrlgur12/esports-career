@@ -11,7 +11,7 @@ export function getMainBackground(game: GameState, dayType: string) {
   // 평가전 / 아카데미 공식전 → 경기장
   if (
     morningEventPending &&
-    (dayType === "EVALUATION" || dayType === "ACADEMY_MATCH")
+    (dayType === "EVALUATION" || dayType === "SECOND_TEAM_MATCH")
   ) {
     return BACKGROUNDS.STADIUM;
   }

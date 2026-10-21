@@ -14,6 +14,7 @@ export default function RootLayout() {
           <Stack.Screen name="home" />
           <Stack.Screen name="create" />
           <Stack.Screen name="prologue" />
+          <Stack.Screen name="callup" />
         </Stack>
       </View>
 

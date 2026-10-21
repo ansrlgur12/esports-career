@@ -172,6 +172,7 @@ function buildCommentary(
   enemyKills: number,
 ): string[] {
   const position = game.player.position;
+  const playerName = game.player.name;
   const context = scoreContext(teamKills, enemyKills);
   const otherLane =
     position === "BOT" || position === "SUPPORT"
@@ -231,7 +232,11 @@ function buildCommentary(
         "첫 교전에서 킬이 발생합니다. 이제 양 팀의 움직임이 달라집니다.",
       ]),
       pick(neutral),
-      `${position}에게도 직접 개입할 수 있는 타이밍이 다가옵니다.`,
+      pick([
+        `${playerName} 선수가 라인을 밀어 넣고 먼저 움직일 준비를 합니다.`,
+        `${playerName} 선수가 상대의 움직임을 확인하며 다음 플레이를 준비합니다.`,
+        `${playerName} 선수 쪽 라인에서도 주도권 싸움이 치열해집니다.`,
+      ]),
     ];
   }
 
@@ -246,10 +251,10 @@ function buildCommentary(
       ]),
       pick(fight),
       context === "AHEAD"
-        ? `${position}이 합류하면 우위를 더 크게 벌릴 수 있는 상황입니다.`
+        ? `${playerName} 선수가 라인을 정리하고 강가 쪽으로 먼저 움직입니다. 우리 팀이 합류 우위를 만들고 있습니다.`
         : context === "BEHIND"
-          ? `${position}의 판단 하나로 불리한 흐름을 끊을 수 있는 상황입니다.`
-          : `${position}의 합류 판단이 다음 교전의 핵심이 될 수 있습니다.`,
+          ? `${playerName} 선수가 시야 밖에서 조심스럽게 합류 각을 찾습니다. 한 번의 반격이 필요한 상황입니다.`
+          : `${playerName} 선수도 라인을 벗어나 강가 쪽으로 움직입니다. 양 팀의 합류 속도가 빨라집니다.`,
     ];
   }
 
@@ -348,15 +353,146 @@ export function advanceScrim(game: GameState, state: ScrimState): ScrimState {
   return {
     ...state,
     minute: nextMoment.minute,
-    commentaryLog: [
-      ...(state.commentaryLog ?? []),
-      {
-        minute: nextMoment.minute,
-        second: randomSecond(),
-        text: `중요한 순간입니다. ${nextMoment.title}`,
-      },
-    ],
+    commentaryLog: state.commentaryLog ?? [],
   };
+}
+
+function choiceReaction(
+  moment: ScrimMoment,
+  choice: ScrimChoice,
+  success: boolean,
+): string[] {
+  const reactions: Record<string, { success: string[]; fail: string[] }> = {
+    punish: {
+      success: [
+        "상대가 한 발 더 들어온 순간 바로 받아칩니다! 정확한 킬각 판단입니다.",
+        "과감하게 전진합니다! 상대의 퇴로를 막고 직접 킬을 만들어냅니다.",
+        "빈틈을 놓치지 않았습니다. 솔로 킬로 라인 주도권을 완전히 가져옵니다!",
+      ],
+      fail: [
+        "킬각을 노리고 깊게 들어갔지만 상대 정글이 기다리고 있었습니다!",
+        "조금 과했습니다. 상대가 침착하게 받아치며 오히려 역으로 쓰러집니다.",
+        "마무리를 노렸지만 계산이 어긋났습니다. 퇴로가 막히며 데스를 허용합니다.",
+      ],
+    },
+    freeze: {
+      success: [
+        "싸움을 열지 않습니다. 라인을 완벽하게 묶으며 상대의 CS 손실을 만들어냅니다.",
+        "침착하게 웨이브를 고정합니다. 상대는 앞으로 나올 수밖에 없는 상황입니다.",
+        "킬 대신 라인 이득을 선택합니다. 안정적으로 격차를 벌려갑니다.",
+      ],
+      fail: [
+        "라인을 묶으려 했지만 상대가 빠르게 밀고 먼저 움직입니다.",
+        "안정적인 선택이었지만 상대가 로밍 타이밍을 얻었습니다.",
+        "웨이브 관리가 조금 어긋납니다. 기대했던 만큼 상대를 묶어두지 못합니다.",
+      ],
+    },
+    pressure: {
+      success: [
+        "라인을 밀어 넣고 곧바로 강가 시야를 장악합니다. 팀이 편하게 움직일 공간이 생깁니다.",
+        "압박 후 먼저 사라집니다. 상대는 위치를 확인하지 못한 채 뒤로 물러섭니다.",
+        "주도권을 시야로 연결했습니다. 우리 정글의 동선까지 훨씬 편해집니다.",
+      ],
+      fail: [
+        "시야를 잡으러 이동하는 순간 상대가 먼저 숨어 있었습니다. 체력을 크게 잃습니다.",
+        "라인 압박은 성공했지만 시야 장악 과정에서 동선이 읽혔습니다.",
+        "강가로 먼저 움직였지만 팀의 합류가 늦습니다. 별다른 이득 없이 물러납니다.",
+      ],
+    },
+    engage: {
+      success: [
+        "망설이지 않고 먼저 진입합니다! 완벽한 이니시에이팅으로 상대 진형이 무너집니다!",
+        "교전을 직접 엽니다! 우리 팀이 즉시 호응하며 한타를 크게 이깁니다.",
+        "상대 핵심 선수를 정확히 물었습니다! 드래곤 앞 전투를 지배합니다.",
+      ],
+      fail: [
+        "먼저 들어갔지만 팀의 거리가 멉니다! 순식간에 포커싱을 당합니다.",
+        "진입 타이밍이 너무 빨랐습니다. 상대가 역으로 받아치며 교전이 무너집니다.",
+        "과감한 이니시는 좋았지만 상대가 예상하고 있었습니다. 먼저 쓰러집니다.",
+      ],
+    },
+    wait: {
+      success: [
+        "끝까지 기다립니다. 상대가 먼저 무너진 순간 역으로 덮쳐 교전을 가져옵니다!",
+        "상대의 성급한 진입을 흘려냅니다. 완벽한 역공 타이밍입니다.",
+        "한 박자 참은 판단이 적중합니다. 상대 스킬이 빠진 뒤 안전하게 전투를 정리합니다.",
+      ],
+      fail: [
+        "너무 오래 기다렸습니다. 상대가 먼저 드래곤을 정리하고 빠져나갑니다.",
+        "역공을 노렸지만 상대가 빈틈을 주지 않습니다. 오브젝트를 그대로 내줍니다.",
+        "교전을 열 타이밍을 놓쳤습니다. 팀이 서로 다른 판단을 하며 진형이 갈립니다.",
+      ],
+    },
+    flank: {
+      success: [
+        "시야 밖으로 크게 돌아갑니다. 완벽한 측면 진입! 상대 딜러가 그대로 노출됩니다!",
+        "상대가 정면만 보는 사이 뒤를 잡았습니다. 한타 구도가 완전히 무너집니다!",
+        "측면 각이 제대로 열렸습니다. 상대 후방을 끊으며 대승을 만들어냅니다.",
+      ],
+      fail: [
+        "측면으로 돌던 움직임이 와드에 포착됐습니다. 오히려 혼자 고립됩니다.",
+        "플랭크를 노렸지만 상대가 먼저 눈치챕니다. 본대와 거리가 너무 멉니다.",
+        "좋은 각을 찾으려다 합류가 늦었습니다. 우리 팀이 먼저 교전을 당합니다.",
+      ],
+    },
+    carry: {
+      success: [
+        "직접 승부를 겁니다! 연속으로 상대를 정리하며 한타를 캐리합니다!",
+        "가장 위험한 위치까지 파고듭니다. 개인 기량으로 상대 핵심 딜러를 제거합니다!",
+        "승부처에서 손이 풀렸습니다! 압도적인 교전으로 경기를 끝낼 기회를 만듭니다.",
+      ],
+      fail: [
+        "캐리를 노리고 깊게 들어갔지만 집중 포화를 버티지 못합니다!",
+        "개인 기량으로 해결하려 했지만 상대의 CC 연계에 막힙니다.",
+        "너무 큰 플레이를 노렸습니다. 먼저 쓰러지며 팀이 수적 열세에 놓입니다.",
+      ],
+    },
+    objective: {
+      success: [
+        "킬을 쫓지 않고 오브젝트로 방향을 틉니다. 침착하게 큰 이득을 확보합니다.",
+        "교전보다 오브젝트를 선택합니다. 상대가 따라오지 못하며 운영 격차가 벌어집니다.",
+        "정확한 콜입니다. 팀이 빠르게 오브젝트를 녹이며 승기를 잡습니다.",
+      ],
+      fail: [
+        "오브젝트를 먼저 치지만 상대의 진입을 막지 못합니다. 위험한 구도가 됩니다.",
+        "운영을 선택했지만 상대가 더 빠르게 합류합니다. 오브젝트를 포기하고 물러납니다.",
+        "목표물에 집중한 사이 상대가 측면을 파고듭니다. 판단이 꼬였습니다.",
+      ],
+    },
+    team: {
+      success: [
+        "팀 콜에 정확히 맞춰 움직입니다. 다섯 명의 호흡이 맞으며 교전을 깔끔하게 정리합니다.",
+        "개인 플레이를 줄이고 본대와 함께 갑니다. 빈틈 없는 연계가 나옵니다.",
+        "팀의 진입 타이밍에 맞춰 스킬을 쏟아붓습니다. 안정적인 한타 승리입니다.",
+      ],
+      fail: [
+        "팀 콜에 맞추려 했지만 순간적으로 판단이 엇갈립니다. 진형이 갈립니다.",
+        "본대와 함께 움직였지만 상대의 변칙적인 진입에 대응이 늦었습니다.",
+        "안정적인 선택이었지만 상대가 더 좋은 각을 만들었습니다. 교전에서 밀립니다.",
+      ],
+    },
+  };
+
+  const pool = reactions[choice.id];
+  const resultText = pool
+    ? pick(success ? pool.success : pool.fail)
+    : success
+      ? `${choice.title} 선택이 적중합니다. ${moment.title}에서 우리 팀이 이득을 가져갑니다.`
+      : `${choice.title} 선택이 어긋납니다. ${moment.title}에서 상대가 빈틈을 파고듭니다.`;
+
+  const followUp = success
+    ? pick([
+        "우리 팀이 이 기세를 이용해 시야와 라인 주도권까지 가져갑니다.",
+        "상대가 한발 물러섭니다. 우리 팀이 다음 움직임을 먼저 선택할 수 있습니다.",
+        "교전 이득이 골드 차이로 이어집니다. 경기 흐름이 우리 쪽으로 기웁니다.",
+      ])
+    : pick([
+        "상대가 얻은 이득을 바탕으로 시야를 앞으로 밀어냅니다.",
+        "우리 팀은 추가 손실을 막기 위해 잠시 뒤로 물러섭니다.",
+        "흐름을 다시 가져오려면 다음 교전에서 더 신중한 판단이 필요합니다.",
+      ]);
+
+  return [resultText, followUp];
 }
 
 export function resolveScrimChoice(
@@ -381,12 +517,32 @@ export function resolveScrimChoice(
 
   const success = roll <= chance;
   const highRisk = choice.risk === "HIGH";
+  const resolvedMoment = SCRIM_MOMENTS[state.momentIndex];
+  const reactionLines = choiceReaction(resolvedMoment, choice, success);
+  const reactionMinute = state.minute;
+  const reactionSecond = randomSecond();
 
   let next: ScrimState = {
     ...state,
     clutchTotal: state.clutchTotal + 1,
     momentIndex: state.momentIndex + 1,
     minute: state.minute + 2,
+    commentaryLog: [
+      ...(state.commentaryLog ?? []),
+      {
+        minute: reactionMinute,
+        second: reactionSecond,
+        text: `__CHOICE__[${choice.title}] ${reactionLines[0]}`,
+      },
+      {
+        minute: reactionMinute,
+        second: Math.min(
+          59,
+          reactionSecond + Math.floor(Math.random() * 8) + 2,
+        ),
+        text: `__CHOICE__${reactionLines[1]}`,
+      },
+    ],
   };
 
   if (success) {

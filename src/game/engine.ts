@@ -1,17 +1,17 @@
 import { ACTIONS } from "../data/actions";
 import {
-  AcademyCallupCandidate,
+  AcademyRival,
   ActionDef,
   AvatarState,
   DayType,
   GameState,
   Position,
   ScrimGrade,
+  SecondTeamCallupCandidate,
   StatKey,
   Stats,
   StatXp,
   TimeSlot,
-  TraineeRival,
   Weekday,
 } from "../types/game";
 
@@ -102,7 +102,7 @@ export function getWeekday(date: string): Weekday {
 }
 
 /**
- * 연습생 단계의 기본 주간 일정.
+ * 아카데미 단계의 기본 주간 일정.
  *
  * 월~금: 일반 훈련
  * 토: 평가일 (향후 평가전/코치 평가 시스템 연결)
@@ -127,7 +127,7 @@ export function getDayType(
 
   // 2군부터 토요일 공식 리그 경기.
   if (careerStage === "SECOND_TEAM" && weekday === "SAT")
-    return "ACADEMY_MATCH";
+    return "SECOND_TEAM_MATCH";
 
   return "TRAINING";
 }
@@ -143,20 +143,20 @@ export function getDayLabel(state: GameState) {
   };
 }
 
-export const ACADEMY_OPPONENTS = [
-  { id: "nova", name: "NOVA ACADEMY", power: 61 },
-  { id: "raven", name: "RAVEN ACADEMY", power: 65 },
-  { id: "apex", name: "APEX ACADEMY", power: 68 },
-  { id: "zero", name: "ZERO ACADEMY", power: 63 },
-  { id: "orbit", name: "ORBIT ACADEMY", power: 70 },
-  { id: "vortex", name: "VORTEX ACADEMY", power: 66 },
-  { id: "titan", name: "TITAN ACADEMY", power: 72 },
-  { id: "pulse", name: "PULSE ACADEMY", power: 64 },
-  { id: "eclipse", name: "ECLIPSE ACADEMY", power: 69 },
+export const SECOND_TEAM_OPPONENTS = [
+  { id: "nova", name: "NOVA 2군", power: 61 },
+  { id: "raven", name: "RAVEN 2군", power: 65 },
+  { id: "apex", name: "APEX 2군", power: 68 },
+  { id: "zero", name: "ZERO 2군", power: 63 },
+  { id: "orbit", name: "ORBIT 2군", power: 70 },
+  { id: "vortex", name: "VORTEX 2군", power: 66 },
+  { id: "titan", name: "TITAN 2군", power: 72 },
+  { id: "pulse", name: "PULSE 2군", power: 64 },
+  { id: "eclipse", name: "ECLIPSE 2군", power: 69 },
 ] as const;
 
-export function getAcademyMatchInfo(state: GameState) {
-  const season = state.player.academySeason ?? {
+export function getSecondTeamMatchInfo(state: GameState) {
+  const season = state.player.secondTeamSeason ?? {
     round: 1,
     wins: 0,
     losses: 0,
@@ -166,7 +166,7 @@ export function getAcademyMatchInfo(state: GameState) {
     matchHistory: [],
   };
   const opponent =
-    ACADEMY_OPPONENTS[(season.round - 1) % ACADEMY_OPPONENTS.length];
+    SECOND_TEAM_OPPONENTS[(season.round - 1) % SECOND_TEAM_OPPONENTS.length];
   return {
     round: season.round,
     opponent,
@@ -177,7 +177,7 @@ export function getAcademyMatchInfo(state: GameState) {
 export function getUpcomingSchedule(state: GameState) {
   if (
     state.player.careerStage === "ACADEMY" &&
-    state.player.academyPromotionReady
+    state.player.secondTeamCallupReady
   ) {
     const weekday = getWeekday(state.date);
     return {
@@ -204,10 +204,10 @@ export function getUpcomingSchedule(state: GameState) {
     if (
       dayType === "EVALUATION" ||
       dayType === "SCRIM" ||
-      dayType === "ACADEMY_MATCH"
+      dayType === "SECOND_TEAM_MATCH"
     ) {
       const weekday = getWeekday(targetDate);
-      const academy = getAcademyMatchInfo(state);
+      const academy = getSecondTeamMatchInfo(state);
       return {
         date: targetDate,
         weekday,
@@ -219,14 +219,14 @@ export function getUpcomingSchedule(state: GameState) {
             ? "월간 아카데미 평가"
             : dayType === "SCRIM"
               ? "팀 스크림"
-              : `아카데미 리그 ${academy.round}R vs ${academy.opponent.name}`,
+              : `2군 리그 ${academy.round}R vs ${academy.opponent.name}`,
       };
     }
   }
   return null;
 }
 
-function createTraineeRivals(position: Position): TraineeRival[] {
+function createAcademyRivals(position: Position): AcademyRival[] {
   const otherPositions: Position[] = [
     "TOP",
     "JUNGLE",
@@ -314,7 +314,7 @@ function createTraineeRivals(position: Position): TraineeRival[] {
   ];
 }
 
-function rivalScore(rival: TraineeRival) {
+function rivalScore(rival: AcademyRival) {
   return (
     rival.evaluationScore * 0.35 +
     rival.scrimRating * 0.25 +
@@ -325,7 +325,7 @@ function rivalScore(rival: TraineeRival) {
 
 function playerCompetitionScore(state: GameState) {
   const evals = state.player.evaluationHistory ?? [];
-  const scrims = state.player.traineeScrimHistory ?? [];
+  const scrims = state.player.academyScrimHistory ?? [];
   const evaluation = evals.length
     ? evals[evals.length - 1].performanceScore
     : 50;
@@ -342,7 +342,7 @@ function playerCompetitionScore(state: GameState) {
   );
 }
 
-export function getTraineeStandings(state: GameState) {
+export function getAcademyStandings(state: GameState) {
   const rows = [
     {
       id: "player",
@@ -353,7 +353,7 @@ export function getTraineeStandings(state: GameState) {
       trend: 0 as -1 | 0 | 1,
       isPlayer: true,
     },
-    ...(state.player.traineeRivals ?? []).map((rival) => ({
+    ...(state.player.academyRivals ?? []).map((rival) => ({
       id: rival.id,
       name: rival.name,
       position: rival.position,
@@ -368,15 +368,15 @@ export function getTraineeStandings(state: GameState) {
 }
 
 export function getPositionStandings(state: GameState) {
-  return getTraineeStandings(state).filter(
+  return getAcademyStandings(state).filter(
     (row) => row.position === state.player.position,
   );
 }
 
-export function getAcademyCallupCandidates(
+export function getSecondTeamCallupCandidates(
   state: GameState,
-): AcademyCallupCandidate[] {
-  const standings = getTraineeStandings(state);
+): SecondTeamCallupCandidate[] {
+  const standings = getAcademyStandings(state);
   const positionGroups = new Map<Position, typeof standings>();
 
   for (const row of standings) {
@@ -385,7 +385,7 @@ export function getAcademyCallupCandidates(
     positionGroups.set(row.position, group);
   }
 
-  const candidates: AcademyCallupCandidate[] = [];
+  const candidates: SecondTeamCallupCandidate[] = [];
 
   for (const [position, rows] of positionGroups.entries()) {
     rows.forEach((row, index) => {
@@ -415,7 +415,7 @@ export function getAcademyCallupCandidates(
 }
 
 function simulateRivals(
-  rivals: TraineeRival[],
+  rivals: AcademyRival[],
   seed: number,
   monthlyEvaluation = false,
 ) {
@@ -470,7 +470,7 @@ function simulateRivals(
                 ? "B"
                 : "C";
     const previous = rivalScore(rival);
-    const next: TraineeRival = {
+    const next: AcademyRival = {
       ...rival,
       ovr: rival.ovr + ovrGain,
       form,
@@ -544,7 +544,7 @@ export function newGame(
         deaths: 0,
         assists: 0,
       },
-      academySeason: {
+      secondTeamSeason: {
         round: 1,
         wins: 0,
         losses: 0,
@@ -554,9 +554,9 @@ export function newGame(
         matchHistory: [],
       },
       evaluationHistory: [],
-      traineeScrimHistory: [],
-      traineeRivals: createTraineeRivals(position),
-      academyPromotionReady: false,
+      academyScrimHistory: [],
+      academyRivals: createAcademyRivals(position),
+      secondTeamCallupReady: false,
     },
   };
 }
@@ -585,14 +585,14 @@ export function migrateGame(raw: any): GameState {
     assists: 0,
   };
 
-  const academySeason = {
-    round: raw?.player?.academySeason?.round ?? seasonStats.games + 1,
-    wins: raw?.player?.academySeason?.wins ?? 0,
-    losses: raw?.player?.academySeason?.losses ?? 0,
-    teamRank: raw?.player?.academySeason?.teamRank ?? 5,
-    teamPower: raw?.player?.academySeason?.teamPower ?? 64,
-    firstTeamInterest: raw?.player?.academySeason?.firstTeamInterest ?? 0,
-    matchHistory: raw?.player?.academySeason?.matchHistory ?? [],
+  const secondTeamSeason = {
+    round: raw?.player?.secondTeamSeason?.round ?? seasonStats.games + 1,
+    wins: raw?.player?.secondTeamSeason?.wins ?? 0,
+    losses: raw?.player?.secondTeamSeason?.losses ?? 0,
+    teamRank: raw?.player?.secondTeamSeason?.teamRank ?? 5,
+    teamPower: raw?.player?.secondTeamSeason?.teamPower ?? 64,
+    firstTeamInterest: raw?.player?.secondTeamSeason?.firstTeamInterest ?? 0,
+    matchHistory: raw?.player?.secondTeamSeason?.matchHistory ?? [],
   };
 
   return refreshRecovery({
@@ -622,13 +622,20 @@ export function migrateGame(raw: any): GameState {
           : 24000000),
       morningEventCompletedDate: raw?.player?.morningEventCompletedDate ?? null,
       seasonStats,
-      academySeason,
+      secondTeamSeason,
       evaluationHistory: raw?.player?.evaluationHistory ?? [],
-      traineeScrimHistory: raw?.player?.traineeScrimHistory ?? [],
-      traineeRivals:
+      academyScrimHistory:
+        raw?.player?.academyScrimHistory ??
+        raw?.player?.traineeScrimHistory ??
+        [],
+      academyRivals:
+        raw?.player?.academyRivals ??
         raw?.player?.traineeRivals ??
-        createTraineeRivals(raw?.player?.position ?? "MID"),
-      academyPromotionReady: raw?.player?.academyPromotionReady ?? false,
+        createAcademyRivals(raw?.player?.position ?? "MID"),
+      secondTeamCallupReady:
+        raw?.player?.secondTeamCallupReady ??
+        raw?.player?.academyPromotionReady ??
+        false,
     },
   });
 }
@@ -999,7 +1006,7 @@ function advance(
   };
 }
 
-export function completeTraineeScrim(
+export function completeAcademyScrim(
   state: GameState,
   result: {
     grade: ScrimGrade;
@@ -1011,8 +1018,8 @@ export function completeTraineeScrim(
   },
 ): GameState {
   const current = refreshRecovery(state);
-  const traineeScrimHistory = [
-    ...(current.player.traineeScrimHistory ?? []),
+  const academyScrimHistory = [
+    ...(current.player.academyScrimHistory ?? []),
     {
       date: current.date,
       grade: result.grade,
@@ -1036,10 +1043,10 @@ export function completeTraineeScrim(
     actionSeed: current.actionSeed + 73,
     player: {
       ...current.player,
-      traineeScrimHistory,
+      academyScrimHistory,
       morningEventCompletedDate: current.date,
-      traineeRivals: simulateRivals(
-        current.player.traineeRivals ?? [],
+      academyRivals: simulateRivals(
+        current.player.academyRivals ?? [],
         current.actionSeed + 73,
         false,
       ),
@@ -1054,7 +1061,7 @@ export function completeTraineeScrim(
 export function promoteToSecondTeam(state: GameState): GameState {
   if (
     state.player.careerStage !== "ACADEMY" ||
-    !state.player.academyPromotionReady
+    !state.player.secondTeamCallupReady
   ) {
     return state;
   }
@@ -1065,11 +1072,11 @@ export function promoteToSecondTeam(state: GameState): GameState {
     player: {
       ...state.player,
       careerStage: "SECOND_TEAM",
-      academyPromotionReady: false,
+      secondTeamCallupReady: false,
       annualSalary: Math.max(state.player.annualSalary ?? 24000000, 36000000),
       starterCompetition: Math.max(10, state.player.starterCompetition),
       seasonStats: { games: 0, kills: 0, deaths: 0, assists: 0 },
-      academySeason: {
+      secondTeamSeason: {
         round: 1,
         wins: 0,
         losses: 0,
@@ -1082,7 +1089,7 @@ export function promoteToSecondTeam(state: GameState): GameState {
   };
 }
 
-export function completeAcademyMatch(
+export function completeSecondTeamMatch(
   state: GameState,
   result: {
     win: boolean;
@@ -1099,7 +1106,7 @@ export function completeAcademyMatch(
     deaths: 0,
     assists: 0,
   };
-  const season = current.player.academySeason ?? {
+  const season = current.player.secondTeamSeason ?? {
     round: previous.games + 1,
     wins: 0,
     losses: 0,
@@ -1108,7 +1115,7 @@ export function completeAcademyMatch(
     firstTeamInterest: 0,
     matchHistory: [],
   };
-  const matchInfo = getAcademyMatchInfo(current);
+  const matchInfo = getSecondTeamMatchInfo(current);
 
   const record = {
     round: matchInfo.round,
@@ -1158,7 +1165,7 @@ export function completeAcademyMatch(
         deaths: previous.deaths + result.playerDeaths,
         assists: previous.assists + result.playerAssists,
       },
-      academySeason: {
+      secondTeamSeason: {
         ...season,
         round: season.round + 1,
         wins,
@@ -1186,8 +1193,8 @@ export function completeAcademyMatch(
   };
 }
 
-export function getTraineeRank(state: GameState) {
-  const standings = getTraineeStandings(state);
+export function getAcademyRank(state: GameState) {
+  const standings = getAcademyStandings(state);
   const player = standings.find((row) => row.isPlayer);
   return { rank: player?.rank ?? standings.length, total: standings.length };
 }
@@ -1212,7 +1219,7 @@ export function getPromotionChanceLabel(state: GameState) {
   return "매우 낮음";
 }
 
-function getTraineeRankFromValues(
+function getAcademyRankFromValues(
   coachTrust: number,
   starterCompetition: number,
   ovr: number,
@@ -1234,7 +1241,7 @@ function promotionChanceFromScore(score: number) {
   return "매우 낮음";
 }
 
-export function completeTraineeEvaluation(
+export function completeAcademyEvaluation(
   state: GameState,
   result: {
     grade: ScrimGrade;
@@ -1246,7 +1253,7 @@ export function completeTraineeEvaluation(
 ): GameState {
   const current = refreshRecovery(state);
 
-  const recentScrims = (current.player.traineeScrimHistory ?? []).slice(-8);
+  const recentScrims = (current.player.academyScrimHistory ?? []).slice(-8);
   const scrimAverage =
     recentScrims.length > 0
       ? recentScrims.reduce((sum, item) => sum + item.performanceScore, 0) /
@@ -1278,7 +1285,7 @@ export function completeTraineeEvaluation(
               ? "B"
               : "C";
 
-  const rankBefore = getTraineeRank(current).rank;
+  const rankBefore = getAcademyRank(current).rank;
   const positionRankBefore =
     getPositionStandings(current).findIndex((row) => row.isPlayer) + 1;
   const previousRecent = (current.player.evaluationHistory ?? []).slice(-3);
@@ -1325,7 +1332,7 @@ export function completeTraineeEvaluation(
 
   // 경쟁자들도 같은 월간 평가 주기에 성장/평가된다.
   const nextRivals = simulateRivals(
-    current.player.traineeRivals ?? [],
+    current.player.academyRivals ?? [],
     current.actionSeed + 191,
     true,
   );
@@ -1337,12 +1344,12 @@ export function completeTraineeEvaluation(
       starterCompetition: nextStarterCompetition,
       evaluationHistory,
       morningEventCompletedDate: current.date,
-      traineeRivals: nextRivals,
+      academyRivals: nextRivals,
     },
   };
 
   // 실제 전체/포지션 경쟁 순위를 다시 계산한다.
-  const rankAfter = getTraineeRank(rankState).rank;
+  const rankAfter = getAcademyRank(rankState).rank;
   const positionStandingsAfter = getPositionStandings(rankState);
   const positionRankAfter =
     positionStandingsAfter.findIndex((row) => row.isPlayer) + 1;
@@ -1355,7 +1362,7 @@ export function completeTraineeEvaluation(
       : positionRankAfter > positionRankBefore
         ? `${closestRival?.name ?? "경쟁자"}에게 밀리며 ${current.player.position} 경쟁 ${positionRankAfter}위로 내려갔습니다.`
         : positionRankAfter === 1
-          ? `${current.player.position} 연습생 경쟁 1위를 지켰습니다.`
+          ? `${current.player.position} 아카데미 경쟁 1위를 지켰습니다.`
           : `${current.player.position} 경쟁 ${positionRankAfter}위를 유지했습니다.`;
 
   const promotionChanceAfter = promotionChanceFromScore(
@@ -1376,7 +1383,7 @@ export function completeTraineeEvaluation(
     promotionChanceAfter,
   };
 
-  const academyPromotionReady =
+  const secondTeamCallupReady =
     evaluationHistory.length >= 3 &&
     nextCoachTrust >= 55 &&
     nextStarterCompetition >= 55 &&
@@ -1393,8 +1400,8 @@ export function completeTraineeEvaluation(
       coachTrust: nextCoachTrust,
       starterCompetition: nextStarterCompetition,
       evaluationHistory,
-      traineeRivals: nextRivals,
-      academyPromotionReady,
+      academyRivals: nextRivals,
+      secondTeamCallupReady,
       stamina: Math.max(0, current.player.stamina - 18),
       condition: Math.max(0, current.player.condition - 6),
       stress: Math.min(100, current.player.stress + 5),

@@ -16,10 +16,9 @@ import {
     applyAction,
     calculateOvr,
     generateActions,
-    getAcademyMatchInfo,
     getDayLabel,
+    getSecondTeamMatchInfo,
     getUpcomingSchedule,
-    promoteToSecondTeam,
     recoveryRemaining,
     statLabels,
     useFullRecovery,
@@ -62,27 +61,6 @@ export default function HomeScreen() {
       };
     }, []),
   );
-
-  async function acceptAcademyPromotion() {
-    if (
-      !game ||
-      isResolving ||
-      game.player.careerStage !== "ACADEMY" ||
-      !game.player.academyPromotionReady
-    ) {
-      return;
-    }
-
-    setIsResolving(true);
-
-    try {
-      const next = promoteToSecondTeam(game);
-      setGame(next);
-      await saveGame(next);
-    } finally {
-      setIsResolving(false);
-    }
-  }
 
   async function chooseAction(index: number) {
     if (!game || isResolving) return;
@@ -199,17 +177,17 @@ export default function HomeScreen() {
     seasonStats.deaths === 0
       ? seasonStats.kills + seasonStats.assists
       : (seasonStats.kills + seasonStats.assists) / seasonStats.deaths;
-  const academySeason = game.player.academySeason;
-  const academyMatch =
+  const academySeason = game.player.secondTeamSeason;
+  const secondTeamMatch =
     game.player.careerStage === "SECOND_TEAM"
-      ? getAcademyMatchInfo(game)
+      ? getSecondTeamMatchInfo(game)
       : null;
   const morningEventPending =
     game.slot === "MORNING" &&
     game.player.morningEventCompletedDate !== game.date &&
     (today.dayType === "EVALUATION" ||
       today.dayType === "SCRIM" ||
-      today.dayType === "ACADEMY_MATCH");
+      today.dayType === "SECOND_TEAM_MATCH");
   const backgroundSource = getMainBackground(game, today.dayType);
 
   return (
@@ -238,7 +216,7 @@ export default function HomeScreen() {
 
             <Pressable
               disabled={game.player.careerStage !== "ACADEMY"}
-              onPress={() => router.push("/trainee")}
+              onPress={() => router.push("/academy")}
               hitSlop={8}
             >
               <Text style={styles.stage}>
@@ -361,27 +339,27 @@ export default function HomeScreen() {
         </View>
 
         {game.player.careerStage === "ACADEMY" &&
-        game.player.academyPromotionReady ? (
+        game.player.secondTeamCallupReady ? (
           <View style={styles.evaluationOnly}>
             <View style={styles.evaluationInfo}>
               <Text style={styles.eventLabel}>SPECIAL EVENT</Text>
               <Text style={styles.evaluationTitle}>2군 콜업</Text>
               <Text style={styles.eventDate}>
-                코치가 아카데미 팀 합류를 제안했습니다.
+                코치가 2군 콜업 면담을 요청했습니다.
               </Text>
             </View>
             <Pressable
               style={styles.scrimStartButton}
               disabled={isResolving}
-              onPress={acceptAcademyPromotion}
+              onPress={() => router.push("/callup")}
             >
-              <Text style={styles.scrimStartButtonText}>아카데미 합류</Text>
+              <Text style={styles.scrimStartButtonText}>콜업 면담 시작</Text>
             </Pressable>
           </View>
         ) : morningEventPending && today.dayType === "EVALUATION" ? (
           <View style={styles.evaluationOnly}>
             <View style={styles.evaluationInfo}>
-              <Text style={styles.eventLabel}>월간 연습생 평가</Text>
+              <Text style={styles.eventLabel}>월간 아카데미 평가</Text>
               <Text style={styles.evaluationTitle}>평가 스크림</Text>
               <Text style={styles.eventDate}>
                 오전 일정 · 평가 종료 후 오후와 저녁은 평소 일정으로 진행합니다.
@@ -412,18 +390,18 @@ export default function HomeScreen() {
               <Text style={styles.scrimStartButtonText}>스크림 시작</Text>
             </Pressable>
           </View>
-        ) : morningEventPending && today.dayType === "ACADEMY_MATCH" ? (
+        ) : morningEventPending && today.dayType === "SECOND_TEAM_MATCH" ? (
           <View style={styles.evaluationOnly}>
             <View style={styles.evaluationInfo}>
               <Text style={styles.eventLabel}>
-                OFFICIAL MATCH · {academyMatch?.round}R
+                OFFICIAL MATCH · {secondTeamMatch?.round}R
               </Text>
               <Text style={styles.evaluationTitle}>
-                우리 2군 vs {academyMatch?.opponent.name}
+                우리 2군 vs {secondTeamMatch?.opponent.name}
               </Text>
               <Text style={styles.eventDate}>
-                전력 {academyMatch?.teamPower} vs {academyMatch?.opponent.power}{" "}
-                · 공식전 기록 반영
+                전력 {secondTeamMatch?.teamPower} vs{" "}
+                {secondTeamMatch?.opponent.power} · 공식전 기록 반영
               </Text>
             </View>
             <Pressable
@@ -453,7 +431,7 @@ export default function HomeScreen() {
             )}
           </View>
         )}
-        {!morningEventPending && !game.player.academyPromotionReady && (
+        {!morningEventPending && !game.player.secondTeamCallupReady && (
           <View style={styles.actionGrid}>
             {actions.map((action, index) => (
               <Pressable

@@ -35,7 +35,8 @@ export default function BottomNav() {
     pathname === "/" ||
     pathname === "/match" ||
     pathname === "/create" ||
-    pathname === "/prologue"
+    pathname === "/prologue" ||
+    pathname === "/callup"
   )
     return null;
 
