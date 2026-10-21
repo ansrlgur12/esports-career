@@ -66,7 +66,9 @@ export const defaultAvatar: AvatarState = {
 };
 
 export function xpNeeded(stat: number) {
-  return Math.round(500 * Math.pow(1.035, Math.max(0, stat - 50)));
+  // 초반은 빠르게 성장하지만, 스탯이 높아질수록 요구 EXP가 계속 증가한다.
+  // 50: 260 / 60: 367 / 70: 519 / 80: 734 / 100: 1466
+  return Math.round(260 * Math.pow(1.035, Math.max(0, stat - 50)));
 }
 
 export function koreaDateKey(now = new Date()) {
@@ -109,10 +111,18 @@ export function getDayType(
   careerStage: GameState["player"]["careerStage"],
 ): DayType {
   const weekday = getWeekday(date);
+  const dayOfMonth = Number(date.slice(8, 10));
 
   if (weekday === "SUN") return "REST";
 
-  if (careerStage === "TRAINEE" && weekday === "SAT") return "EVALUATION";
+  if (careerStage === "TRAINEE") {
+    // 월간 평가는 매월 첫 번째 월요일 1회.
+    if (weekday === "MON" && dayOfMonth <= 7) return "EVALUATION";
+
+    // 정기 스크림은 평가와 별도로 매주 수요일/토요일.
+    if (weekday === "WED" || weekday === "SAT") return "SCRIM";
+  }
+
   if (careerStage === "ACADEMY" && weekday === "SAT") return "ACADEMY_MATCH";
 
   return "TRAINING";
@@ -126,6 +136,37 @@ export function getDayLabel(state: GameState) {
     weekday,
     weekdayLabel: weekdayLabels[weekday],
     dayType,
+  };
+}
+
+export const ACADEMY_OPPONENTS = [
+  { id: "nova", name: "NOVA ACADEMY", power: 61 },
+  { id: "raven", name: "RAVEN ACADEMY", power: 65 },
+  { id: "apex", name: "APEX ACADEMY", power: 68 },
+  { id: "zero", name: "ZERO ACADEMY", power: 63 },
+  { id: "orbit", name: "ORBIT ACADEMY", power: 70 },
+  { id: "vortex", name: "VORTEX ACADEMY", power: 66 },
+  { id: "titan", name: "TITAN ACADEMY", power: 72 },
+  { id: "pulse", name: "PULSE ACADEMY", power: 64 },
+  { id: "eclipse", name: "ECLIPSE ACADEMY", power: 69 },
+] as const;
+
+export function getAcademyMatchInfo(state: GameState) {
+  const season = state.player.academySeason ?? {
+    round: 1,
+    wins: 0,
+    losses: 0,
+    teamRank: 5,
+    teamPower: 64,
+    firstTeamInterest: 0,
+    matchHistory: [],
+  };
+  const opponent =
+    ACADEMY_OPPONENTS[(season.round - 1) % ACADEMY_OPPONENTS.length];
+  return {
+    round: season.round,
+    opponent,
+    teamPower: season.teamPower,
   };
 }
 
@@ -156,15 +197,25 @@ export function getUpcomingSchedule(state: GameState) {
       String(target.getUTCDate()).padStart(2, "0"),
     ].join("-");
     const dayType = getDayType(targetDate, state.player.careerStage);
-    if (dayType === "EVALUATION" || dayType === "ACADEMY_MATCH") {
+    if (
+      dayType === "EVALUATION" ||
+      dayType === "SCRIM" ||
+      dayType === "ACADEMY_MATCH"
+    ) {
       const weekday = getWeekday(targetDate);
+      const academy = getAcademyMatchInfo(state);
       return {
         date: targetDate,
         weekday,
         weekdayLabel: weekdayLabels[weekday],
         dayType,
         daysAway,
-        title: dayType === "EVALUATION" ? "연습생 평가일" : "아카데미 리그",
+        title:
+          dayType === "EVALUATION"
+            ? "월간 연습생 평가"
+            : dayType === "SCRIM"
+              ? "팀 스크림"
+              : `아카데미 리그 ${academy.round}R vs ${academy.opponent.name}`,
       };
     }
   }
@@ -185,7 +236,7 @@ export function newGame(
   });
 
   return {
-    version: 6,
+    version: 7,
     date: "2027-01-01",
     slot: "MORNING",
     actionSeed: 1,
@@ -212,7 +263,17 @@ export function newGame(
         deaths: 0,
         assists: 0,
       },
+      academySeason: {
+        round: 1,
+        wins: 0,
+        losses: 0,
+        teamRank: 5,
+        teamPower: 64,
+        firstTeamInterest: 0,
+        matchHistory: [],
+      },
       evaluationHistory: [],
+      traineeScrimHistory: [],
       academyPromotionReady: false,
     },
   };
@@ -229,89 +290,47 @@ function normalizeAvatar(raw: any): AvatarState {
 }
 
 export function migrateGame(raw: any): GameState {
-  if (raw?.version === 6) {
-    return refreshRecovery({
-      ...raw,
-      player: {
-        ...raw.player,
-        avatar: normalizeAvatar(raw.player?.avatar),
-      },
-    });
-  }
-
-  // v5 저장 데이터는 선수 평가 필드를 추가해 v6로 올린다.
-  if (raw?.version === 5) {
-    return refreshRecovery({
-      ...raw,
-      version: 6,
-      player: {
-        ...raw.player,
-        avatar: normalizeAvatar(raw.player?.avatar),
-        coachTrust: raw.player?.coachTrust ?? 0,
-        starterCompetition: raw.player?.starterCompetition ?? 0,
-        seasonStats: raw.player?.seasonStats ?? {
-          games: 0,
-          kills: 0,
-          deaths: 0,
-          assists: 0,
-        },
-        evaluationHistory: raw.player?.evaluationHistory ?? [],
-        academyPromotionReady: raw.player?.academyPromotionReady ?? false,
-      },
-    });
-  }
-
-  // v4 저장 데이터도 바로 v6로 올린다.
-  if (raw?.version === 4) {
-    return refreshRecovery({
-      ...raw,
-      version: 6,
-      player: {
-        ...raw.player,
-        avatar: normalizeAvatar(raw.player?.avatar),
-        coachTrust: raw.player?.coachTrust ?? 0,
-        starterCompetition: raw.player?.starterCompetition ?? 0,
-        seasonStats: raw.player?.seasonStats ?? {
-          games: 0,
-          kills: 0,
-          deaths: 0,
-          assists: 0,
-        },
-        evaluationHistory: raw.player?.evaluationHistory ?? [],
-        academyPromotionReady: raw.player?.academyPromotionReady ?? false,
-      },
-    });
-  }
-
   const base = newGame(
     raw?.player?.name ?? "MOON",
     raw?.player?.position ?? "MID",
     normalizeAvatar(raw?.player?.avatar),
   );
 
+  const seasonStats = raw?.player?.seasonStats ?? {
+    games: 0,
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+  };
+
+  const academySeason = {
+    round: raw?.player?.academySeason?.round ?? seasonStats.games + 1,
+    wins: raw?.player?.academySeason?.wins ?? 0,
+    losses: raw?.player?.academySeason?.losses ?? 0,
+    teamRank: raw?.player?.academySeason?.teamRank ?? 5,
+    teamPower: raw?.player?.academySeason?.teamPower ?? 64,
+    firstTeamInterest: raw?.player?.academySeason?.firstTeamInterest ?? 0,
+    matchHistory: raw?.player?.academySeason?.matchHistory ?? [],
+  };
+
   return refreshRecovery({
     ...base,
     ...raw,
-    version: 6,
-    recovery: raw?.recovery ?? {
-      dateKey: koreaDateKey(),
-      used: 0,
-    },
+    version: 7,
+    recovery: raw?.recovery ?? base.recovery,
     player: {
       ...base.player,
       ...raw?.player,
       avatar: normalizeAvatar(raw?.player?.avatar),
       age: raw?.player?.age ?? 17,
-      careerStage: "TRAINEE",
+      careerStage:
+        raw?.player?.careerStage === "ACADEMY" ? "ACADEMY" : "TRAINEE",
       coachTrust: raw?.player?.coachTrust ?? 0,
       starterCompetition: raw?.player?.starterCompetition ?? 0,
-      seasonStats: raw?.player?.seasonStats ?? {
-        games: 0,
-        kills: 0,
-        deaths: 0,
-        assists: 0,
-      },
+      seasonStats,
+      academySeason,
       evaluationHistory: raw?.player?.evaluationHistory ?? [],
+      traineeScrimHistory: raw?.player?.traineeScrimHistory ?? [],
       academyPromotionReady: raw?.player?.academyPromotionReady ?? false,
     },
   });
@@ -363,13 +382,36 @@ function rng(seed: number) {
 }
 
 export function generateActions(state: GameState): ActionDef[] {
-  const sleep = ACTIONS.find((a) => a.id === "sleep");
+  const balancedActions = ACTIONS.map((action) => {
+    // 일반 훈련의 체력 소모를 완화한다.
+    // 솔로랭크/팀 스크림은 고강도 활동으로 유지한다.
+    if (action.id === "solo-queue") return { ...action, stamina: -14 };
+    if (action.id === "scrim") return { ...action, stamina: -18 };
+
+    // 수면은 가장 강한 일반 체력 회복 행동.
+    if (action.id === "sleep") return { ...action, stamina: 28 };
+    if (action.id === "rest") return { ...action, stamina: 18 };
+    if (action.id === "self-care") return { ...action, stamina: 14 };
+
+    const isTraining =
+      action.id.includes("training") ||
+      action.id === "macro-analysis" ||
+      action.id === "replay-analysis";
+
+    if (isTraining && action.stamina < -7) {
+      return { ...action, stamina: -7 };
+    }
+
+    return action;
+  });
+
+  const sleep = balancedActions.find((a) => a.id === "sleep");
 
   // 수면은 랜덤 풀에서 제외
   // 명상은 저녁에만 등장
   const dayType = getDayType(state.date, state.player.careerStage);
 
-  const candidates = ACTIONS.filter((a) => {
+  const candidates = balancedActions.filter((a) => {
     if (a.id === "sleep") return false;
 
     if (a.id === "meditation" && state.slot !== "EVENING") {
@@ -660,12 +702,70 @@ function advance(
   };
 }
 
+export function completeTraineeScrim(
+  state: GameState,
+  result: {
+    grade: ScrimGrade;
+    performanceScore: number;
+    win: boolean;
+    playerKills: number;
+    playerDeaths: number;
+    playerAssists: number;
+  },
+): GameState {
+  const current = refreshRecovery(state);
+  const [year, month, day] = current.date.split("-").map(Number);
+  const nextDate = new Date(Date.UTC(year, month - 1, day));
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+
+  const date = [
+    nextDate.getUTCFullYear(),
+    String(nextDate.getUTCMonth() + 1).padStart(2, "0"),
+    String(nextDate.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+
+  const traineeScrimHistory = [
+    ...(current.player.traineeScrimHistory ?? []),
+    {
+      date: current.date,
+      grade: result.grade,
+      performanceScore: result.performanceScore,
+      win: result.win,
+      kills: result.playerKills,
+      deaths: result.playerDeaths,
+      assists: result.playerAssists,
+    },
+  ].slice(-24);
+
+  // 정기 스크림은 기록과 피드백은 남기되 월간 평가 횟수/시즌 KDA에는 직접 포함하지 않는다.
+  // 좋은 스크림은 코치 신뢰에 아주 작게만 영향을 준다.
+  const trustDelta =
+    result.performanceScore >= 85 ? 1 : result.performanceScore < 45 ? -1 : 0;
+
+  return {
+    ...current,
+    date,
+    slot: "MORNING",
+    actionSeed: current.actionSeed + 73,
+    player: {
+      ...current.player,
+      traineeScrimHistory,
+      coachTrust: Math.max(0, current.player.coachTrust + trustDelta),
+      stamina: Math.max(0, current.player.stamina - 14),
+      condition: Math.max(0, current.player.condition - 4),
+      stress: Math.min(100, current.player.stress + 3),
+    },
+  };
+}
+
 export function promoteToAcademy(state: GameState): GameState {
   if (
     state.player.careerStage !== "TRAINEE" ||
     !state.player.academyPromotionReady
-  )
+  ) {
     return state;
+  }
+
   return {
     ...state,
     actionSeed: state.actionSeed + 211,
@@ -674,6 +774,16 @@ export function promoteToAcademy(state: GameState): GameState {
       careerStage: "ACADEMY",
       academyPromotionReady: false,
       starterCompetition: Math.max(10, state.player.starterCompetition),
+      seasonStats: { games: 0, kills: 0, deaths: 0, assists: 0 },
+      academySeason: {
+        round: 1,
+        wins: 0,
+        losses: 0,
+        teamRank: 5,
+        teamPower: 64,
+        firstTeamInterest: 0,
+        matchHistory: [],
+      },
     },
   };
 }
@@ -685,6 +795,7 @@ export function completeAcademyMatch(
     playerKills: number;
     playerDeaths: number;
     playerAssists: number;
+    performanceScore: number;
   },
 ): GameState {
   const current = refreshRecovery(state);
@@ -694,6 +805,51 @@ export function completeAcademyMatch(
     deaths: 0,
     assists: 0,
   };
+  const season = current.player.academySeason ?? {
+    round: previous.games + 1,
+    wins: 0,
+    losses: 0,
+    teamRank: 5,
+    teamPower: 64,
+    firstTeamInterest: 0,
+    matchHistory: [],
+  };
+  const matchInfo = getAcademyMatchInfo(current);
+
+  const record = {
+    round: matchInfo.round,
+    date: current.date,
+    opponentId: matchInfo.opponent.id,
+    opponentName: matchInfo.opponent.name,
+    opponentPower: matchInfo.opponent.power,
+    win: result.win,
+    kills: result.playerKills,
+    deaths: result.playerDeaths,
+    assists: result.playerAssists,
+    performanceScore: result.performanceScore,
+  };
+
+  const wins = season.wins + (result.win ? 1 : 0);
+  const losses = season.losses + (result.win ? 0 : 1);
+  const interestDelta =
+    result.performanceScore >= 85
+      ? 8
+      : result.performanceScore >= 75
+        ? 5
+        : result.performanceScore >= 65
+          ? 2
+          : result.performanceScore < 50
+            ? -2
+            : 0;
+
+  // 임시 리그 순위: 승률과 누적 승수를 기반으로 1~10위 범위에서 갱신.
+  const games = wins + losses;
+  const winRate = games > 0 ? wins / games : 0;
+  const teamRank = Math.max(
+    1,
+    Math.min(10, 10 - Math.round(winRate * 6 + wins * 0.35)),
+  );
+
   const [year, month, day] = current.date.split("-").map(Number);
   const nextDate = new Date(Date.UTC(year, month - 1, day));
   nextDate.setUTCDate(nextDate.getUTCDate() + 1);
@@ -702,6 +858,7 @@ export function completeAcademyMatch(
     String(nextDate.getUTCMonth() + 1).padStart(2, "0"),
     String(nextDate.getUTCDate()).padStart(2, "0"),
   ].join("-");
+
   return {
     ...current,
     date,
@@ -715,7 +872,27 @@ export function completeAcademyMatch(
         deaths: previous.deaths + result.playerDeaths,
         assists: previous.assists + result.playerAssists,
       },
-      coachTrust: Math.max(0, current.player.coachTrust + (result.win ? 2 : 0)),
+      academySeason: {
+        ...season,
+        round: season.round + 1,
+        wins,
+        losses,
+        teamRank,
+        firstTeamInterest: Math.max(
+          0,
+          Math.min(100, season.firstTeamInterest + interestDelta),
+        ),
+        matchHistory: [...season.matchHistory, record].slice(-20),
+      },
+      coachTrust: Math.max(
+        0,
+        current.player.coachTrust +
+          (result.performanceScore >= 75
+            ? 2
+            : result.performanceScore < 50
+              ? -1
+              : 0),
+      ),
       stamina: Math.max(0, current.player.stamina - 20),
       condition: Math.max(0, current.player.condition - 7),
       stress: Math.min(100, current.player.stress + 4),
@@ -757,6 +934,28 @@ export function getPromotionChanceLabel(state: GameState) {
   return "매우 낮음";
 }
 
+function getTraineeRankFromValues(
+  coachTrust: number,
+  starterCompetition: number,
+  ovr: number,
+) {
+  const score = coachTrust * 0.45 + starterCompetition * 0.35 + ovr * 0.2;
+  if (score >= 78) return 1;
+  if (score >= 66) return 2;
+  if (score >= 54) return 3;
+  if (score >= 42) return 4;
+  if (score >= 30) return 5;
+  return 6;
+}
+
+function promotionChanceFromScore(score: number) {
+  if (score >= 75) return "매우 높음";
+  if (score >= 62) return "높음";
+  if (score >= 48) return "보통";
+  if (score >= 34) return "낮음";
+  return "매우 낮음";
+}
+
 export function completeTraineeEvaluation(
   state: GameState,
   result: {
@@ -768,6 +967,55 @@ export function completeTraineeEvaluation(
   },
 ): GameState {
   const current = refreshRecovery(state);
+
+  const recentScrims = (current.player.traineeScrimHistory ?? []).slice(-8);
+  const scrimAverage =
+    recentScrims.length > 0
+      ? recentScrims.reduce((sum, item) => sum + item.performanceScore, 0) /
+        recentScrims.length
+      : result.performanceScore;
+  const ovr = calculateOvr(current.player.stats, current.player.position);
+  const readiness =
+    current.player.condition * 0.45 +
+    current.player.stamina * 0.25 +
+    (100 - current.player.stress) * 0.3;
+
+  const monthlyPerformanceScore = Math.round(
+    result.performanceScore * 0.5 +
+      scrimAverage * 0.25 +
+      ovr * 0.15 +
+      readiness * 0.1,
+  );
+
+  const monthlyGrade: ScrimGrade =
+    monthlyPerformanceScore >= 90
+      ? "S"
+      : monthlyPerformanceScore >= 82
+        ? "A+"
+        : monthlyPerformanceScore >= 74
+          ? "A"
+          : monthlyPerformanceScore >= 66
+            ? "B+"
+            : monthlyPerformanceScore >= 56
+              ? "B"
+              : "C";
+
+  const rankBefore = getTraineeRankFromValues(
+    current.player.coachTrust,
+    current.player.starterCompetition,
+    ovr,
+  );
+  const previousRecent = (current.player.evaluationHistory ?? []).slice(-3);
+  const previousAverage =
+    previousRecent.length === 0
+      ? 0
+      : previousRecent.reduce((sum, item) => sum + item.performanceScore, 0) /
+        previousRecent.length;
+  const promotionChanceBefore = promotionChanceFromScore(
+    current.player.coachTrust * 0.45 +
+      current.player.starterCompetition * 0.35 +
+      previousAverage * 0.2,
+  );
 
   const nextCoachTrust = Math.max(
     0,
@@ -782,9 +1030,15 @@ export function completeTraineeEvaluation(
     ...(current.player.evaluationHistory ?? []),
     {
       date: current.date,
-      grade: result.grade,
-      performanceScore: result.performanceScore,
+      grade: monthlyGrade,
+      performanceScore: monthlyPerformanceScore,
       win: result.win,
+      matchScore: result.performanceScore,
+      scrimScore: Math.round(scrimAverage),
+      ovrScore: Math.round(ovr),
+      readinessScore: Math.round(readiness),
+      rankBefore,
+      coachTrustBefore: current.player.coachTrust,
     },
   ].slice(-8);
 
@@ -794,6 +1048,24 @@ export function completeTraineeEvaluation(
     Math.max(1, recent.length);
 
   // 최소 3번의 평가를 거쳐야 승격 가능.
+  const rankAfter = getTraineeRankFromValues(
+    nextCoachTrust,
+    nextStarterCompetition,
+    ovr,
+  );
+  const promotionChanceAfter = promotionChanceFromScore(
+    nextCoachTrust * 0.45 + nextStarterCompetition * 0.35 + recentAverage * 0.2,
+  );
+
+  // Store before/after values on the newest monthly evaluation record.
+  evaluationHistory[evaluationHistory.length - 1] = {
+    ...evaluationHistory[evaluationHistory.length - 1],
+    rankAfter,
+    coachTrustAfter: nextCoachTrust,
+    promotionChanceBefore,
+    promotionChanceAfter,
+  };
+
   const academyPromotionReady =
     evaluationHistory.length >= 3 &&
     nextCoachTrust >= 55 &&

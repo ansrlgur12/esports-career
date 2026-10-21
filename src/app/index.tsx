@@ -1,13 +1,21 @@
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Animated,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import Avatar from "../components/Avatar";
 import {
   applyAction,
   calculateOvr,
   generateActions,
+  getAcademyMatchInfo,
   getDayLabel,
   getUpcomingSchedule,
   promoteToAcademy,
@@ -75,7 +83,7 @@ export default function HomeScreen() {
       const action = actions[index];
       if (!action) return;
 
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       const next = applyAction(game, action);
 
@@ -129,7 +137,7 @@ export default function HomeScreen() {
 
       // 결과창 1초 표시
       await new Promise<void>((resolve) => {
-        setTimeout(resolve, 1000);
+        setTimeout(resolve, 1400);
       });
 
       setActionResult(null);
@@ -180,6 +188,9 @@ export default function HomeScreen() {
     seasonStats.deaths === 0
       ? seasonStats.kills + seasonStats.assists
       : (seasonStats.kills + seasonStats.assists) / seasonStats.deaths;
+  const academySeason = game.player.academySeason;
+  const academyMatch =
+    game.player.careerStage === "ACADEMY" ? getAcademyMatchInfo(game) : null;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -198,13 +209,21 @@ export default function HomeScreen() {
               <Text style={styles.slot}>{slotLabel[game.slot]}</Text>
             </Text>
 
-            <Text style={styles.stage}>
-              {game.player.careerStage === "ACADEMY"
-                ? "아카데미 데뷔"
-                : "프로 데뷔 준비"}{" "}
-              · {game.player.age}세{" "}
-              {game.player.careerStage === "ACADEMY" ? "아카데미" : "연습생"}
-            </Text>
+            <Pressable
+              disabled={game.player.careerStage !== "TRAINEE"}
+              onPress={() => router.push("/trainee")}
+              hitSlop={8}
+            >
+              <Text style={styles.stage}>
+                {game.player.careerStage === "ACADEMY"
+                  ? "아카데미 데뷔"
+                  : "프로 데뷔 준비"}{" "}
+                · {game.player.age}세{" "}
+                {game.player.careerStage === "ACADEMY"
+                  ? "아카데미"
+                  : "연습생 · 상세"}
+              </Text>
+            </Pressable>
           </View>
 
           <View style={styles.playerBlock}>
@@ -213,10 +232,16 @@ export default function HomeScreen() {
               {game.player.age}세 · {game.player.position} ·{" "}
               {game.player.careerStage}
             </Text>
-            <Text style={styles.seasonKda}>
-              시즌 KDA {seasonKda.toFixed(2)} · {seasonStats.kills}/
-              {seasonStats.deaths}/{seasonStats.assists}
-            </Text>
+            <Pressable
+              disabled={game.player.careerStage !== "ACADEMY"}
+              onPress={() => router.push("/academy")}
+            >
+              <Text style={styles.seasonKda}>
+                시즌 KDA {seasonKda.toFixed(2)} · {seasonStats.kills}/
+                {seasonStats.deaths}/{seasonStats.assists}
+                {game.player.careerStage === "ACADEMY" ? " · 시즌 상세" : ""}
+              </Text>
+            </Pressable>
           </View>
 
           <Pressable
@@ -324,7 +349,7 @@ export default function HomeScreen() {
         ) : today.dayType === "EVALUATION" ? (
           <View style={styles.evaluationOnly}>
             <View style={styles.evaluationInfo}>
-              <Text style={styles.eventLabel}>연습생 평가일</Text>
+              <Text style={styles.eventLabel}>월간 연습생 평가</Text>
               <Text style={styles.evaluationTitle}>평가 스크림</Text>
               <Text style={styles.eventDate}>
                 오늘은 다른 활동 없이 평가 경기를 진행합니다.
@@ -338,13 +363,35 @@ export default function HomeScreen() {
               <Text style={styles.scrimStartButtonText}>연습경기 시작</Text>
             </Pressable>
           </View>
+        ) : today.dayType === "SCRIM" ? (
+          <View style={styles.evaluationOnly}>
+            <View style={styles.evaluationInfo}>
+              <Text style={styles.eventLabel}>TEAM SCRIM</Text>
+              <Text style={styles.evaluationTitle}>정기 스크림</Text>
+              <Text style={styles.eventDate}>
+                매주 수·토 진행 · 월간 평가와 별도 일정입니다.
+              </Text>
+            </View>
+            <Pressable
+              style={styles.scrimStartButton}
+              disabled={isResolving}
+              onPress={() => router.push("/match")}
+            >
+              <Text style={styles.scrimStartButtonText}>스크림 시작</Text>
+            </Pressable>
+          </View>
         ) : today.dayType === "ACADEMY_MATCH" ? (
           <View style={styles.evaluationOnly}>
             <View style={styles.evaluationInfo}>
-              <Text style={styles.eventLabel}>OFFICIAL MATCH</Text>
-              <Text style={styles.evaluationTitle}>아카데미 리그</Text>
+              <Text style={styles.eventLabel}>
+                OFFICIAL MATCH · {academyMatch?.round}R
+              </Text>
+              <Text style={styles.evaluationTitle}>
+                우리 ACADEMY vs {academyMatch?.opponent.name}
+              </Text>
               <Text style={styles.eventDate}>
-                공식전 기록이 시즌 KDA에 반영됩니다.
+                전력 {academyMatch?.teamPower} vs {academyMatch?.opponent.power}{" "}
+                · 공식전 기록 반영
               </Text>
             </View>
             <Pressable
@@ -375,6 +422,7 @@ export default function HomeScreen() {
           </View>
         )}
         {today.dayType !== "EVALUATION" &&
+          today.dayType !== "SCRIM" &&
           today.dayType !== "ACADEMY_MATCH" &&
           !game.player.academyPromotionReady && (
             <View style={styles.actionGrid}>
@@ -396,7 +444,13 @@ export default function HomeScreen() {
                         action.stamina >= 0 && styles.hpPositive,
                       ]}
                     >
-                      {action.stamina >= 0 ? "HP ▲" : "HP ▼"}
+                      {action.stamina >= 20
+                        ? "HP ▲▲"
+                        : action.stamina > 0
+                          ? "HP ▲"
+                          : action.stamina <= -12
+                            ? "HP ▼▼"
+                            : "HP ▼"}
                     </Text>
                   </View>
 
@@ -435,13 +489,32 @@ function formatDelta(value: number) {
 
 function StatResultRow({ result }: { result: any }) {
   const leveledUp = result.afterLevel > result.beforeLevel;
-
-  const progress =
+  const beforeProgress =
+    result.beforeNeeded > 0
+      ? Math.min(100, (result.beforeXp / result.beforeNeeded) * 100)
+      : 0;
+  const afterProgress =
     result.afterNeeded > 0
       ? Math.min(100, (result.afterXp / result.afterNeeded) * 100)
       : 0;
 
-  const width = `${progress}%` as `${number}%`;
+  // 레벨업 시 새 레벨의 EXP 바는 0%부터, 아니면 기존 진행도부터 차오른다.
+  const startProgress = leveledUp ? 0 : beforeProgress;
+  const animatedProgress = useRef(new Animated.Value(startProgress)).current;
+
+  useEffect(() => {
+    animatedProgress.setValue(startProgress);
+    Animated.timing(animatedProgress, {
+      toValue: afterProgress,
+      duration: 750,
+      useNativeDriver: false,
+    }).start();
+  }, [afterProgress, startProgress, animatedProgress]);
+
+  const width = animatedProgress.interpolate({
+    inputRange: [0, 100],
+    outputRange: ["0%", "100%"],
+  });
 
   return (
     <View style={styles.statResultRow}>
@@ -465,7 +538,7 @@ function StatResultRow({ result }: { result: any }) {
 
       <View style={styles.statXpRow}>
         <View style={styles.statXpBar}>
-          <View style={[styles.statXpFill, { width }]} />
+          <Animated.View style={[styles.statXpFill, { width }]} />
         </View>
 
         <Text style={styles.statXpValue}>

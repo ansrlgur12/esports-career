@@ -1,12 +1,12 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
 import { getPromotionChanceLabel, getTraineeRank } from "../game/engine";
@@ -14,6 +14,19 @@ import { loadGame } from "../storage/db";
 import { GameState } from "../types/game";
 
 const LIME = "#C8FF37";
+
+function nextFirstMonday(fromDate: string) {
+  const [y, m, d] = fromDate.split("-").map(Number);
+  const current = new Date(Date.UTC(y, m - 1, d));
+  for (let i = 0; i <= 40; i++) {
+    const test = new Date(current);
+    test.setUTCDate(current.getUTCDate() + i);
+    if (test.getUTCDay() === 1 && test.getUTCDate() <= 7) {
+      return { date: test, daysAway: i };
+    }
+  }
+  return { date: current, daysAway: 0 };
+}
 
 export default function TraineeScreen() {
   const [game, setGame] = useState<GameState | null>(null);
@@ -33,181 +46,266 @@ export default function TraineeScreen() {
   if (!game) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.center}>
-          <Text style={styles.muted}>불러오는 중...</Text>
-        </View>
+        <Text style={styles.loading}>불러오는 중...</Text>
       </SafeAreaView>
     );
   }
 
   const rank = getTraineeRank(game);
   const promotion = getPromotionChanceLabel(game);
-  const history = [...game.player.evaluationHistory].reverse();
+  const scrims = game.player.traineeScrimHistory ?? [];
+  const recentScrims = [...scrims].reverse().slice(0, 6);
+  const wins = scrims.filter((x) => x.win).length;
+  const losses = scrims.length - wins;
+  const avgPerformance = scrims.length
+    ? scrims.reduce((sum, x) => sum + x.performanceScore, 0) / scrims.length
+    : 0;
+  const totalDeaths = scrims.reduce((sum, x) => sum + x.deaths, 0);
+  const scrimKda = scrims.length
+    ? totalDeaths === 0
+      ? scrims.reduce((sum, x) => sum + x.kills + x.assists, 0)
+      : scrims.reduce((sum, x) => sum + x.kills + x.assists, 0) / totalDeaths
+    : 0;
+
+  const evaluations = [...(game.player.evaluationHistory ?? [])].reverse();
+  const latest = evaluations[0];
+  const nextEvaluation = nextFirstMonday(game.date);
+  const dateLabel = `${String(nextEvaluation.date.getUTCMonth() + 1).padStart(2, "0")}/${String(nextEvaluation.date.getUTCDate()).padStart(2, "0")}`;
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
-          <Text style={styles.back}>‹ 홈</Text>
-        </Pressable>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={10}>
+            <Text style={styles.back}>‹</Text>
+          </Pressable>
+          <View>
+            <Text style={styles.kicker}>TRAINEE CENTER</Text>
+            <Text style={styles.title}>
+              {game.player.name} · {game.player.position}
+            </Text>
+          </View>
+        </View>
 
-        <Text style={styles.kicker}>TRAINEE REPORT</Text>
-        <Text style={styles.title}>연습생 현황</Text>
+        <View style={styles.hero}>
+          <View>
+            <Text style={styles.heroLabel}>팀 내 경쟁</Text>
+            <Text style={styles.rank}>
+              {rank.rank} / {rank.total}위
+            </Text>
+          </View>
+          <View style={styles.promotionBox}>
+            <Text style={styles.heroLabel}>아카데미 승격</Text>
+            <Text style={styles.promotion}>{promotion}</Text>
+          </View>
+        </View>
 
+        <View style={styles.metricRow}>
+          <View style={styles.metric}>
+            <Text style={styles.metricLabel}>코치 신뢰</Text>
+            <Text style={styles.metricValue}>{game.player.coachTrust}</Text>
+          </View>
+          <View style={styles.metric}>
+            <Text style={styles.metricLabel}>주전 경쟁</Text>
+            <Text style={styles.metricValue}>
+              {game.player.starterCompetition}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.nextCard}>
+          <Text style={styles.cardKicker}>NEXT MONTHLY EVALUATION</Text>
+          <Text style={styles.nextTitle}>{dateLabel} · 첫째 주 월요일</Text>
+          <Text style={styles.nextDday}>
+            {nextEvaluation.daysAway === 0
+              ? "TODAY"
+              : `D-${nextEvaluation.daysAway}`}
+          </Text>
+        </View>
+
+        <Text style={styles.sectionTitle}>정기 스크림 기록</Text>
         <View style={styles.summary}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.label}>팀 내 평가</Text>
-            <Text style={styles.value}>
-              {rank.rank}위 <Text style={styles.sub}>/ {rank.total}명</Text>
-            </Text>
-          </View>
-
-          <View style={styles.summaryItem}>
-            <Text style={styles.label}>코치 신뢰</Text>
-            <Text style={styles.value}>{game.player.coachTrust}</Text>
-          </View>
-
-          <View style={styles.summaryItem}>
-            <Text style={styles.label}>주전 경쟁</Text>
-            <Text style={styles.value}>{game.player.starterCompetition}</Text>
-          </View>
+          <Text style={styles.summaryMain}>
+            {wins}승 {losses}패
+          </Text>
+          <Text style={styles.summaryText}>
+            평균 퍼포먼스 {avgPerformance.toFixed(1)} · KDA{" "}
+            {scrimKda.toFixed(2)}
+          </Text>
         </View>
 
-        <View style={styles.promotionCard}>
-          <Text style={styles.label}>아카데미 승격 가능성</Text>
-          <Text style={styles.promotion}>{promotion}</Text>
-
-          {game.player.academyPromotionReady ? (
-            <Text style={styles.ready}>
-              승격 기준을 충족했습니다. 다음 승격 이벤트 대상입니다.
-            </Text>
-          ) : (
-            <Text style={styles.muted}>
-              최소 3회의 평가전과 꾸준한 코치 평가가 필요합니다.
-            </Text>
-          )}
-        </View>
-
-        <Text style={styles.sectionTitle}>최근 평가</Text>
-
-        {history.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.muted}>아직 평가전 기록이 없습니다.</Text>
+        {recentScrims.length === 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.muted}>아직 정기 스크림 기록이 없습니다.</Text>
           </View>
         ) : (
-          history.map((item, index) => (
-            <View key={`${item.date}-${index}`} style={styles.historyRow}>
-              <View>
-                <Text style={styles.historyDate}>
-                  {item.date.slice(5).replace("-", "/")}
+          recentScrims.map((s) => (
+            <View key={`${s.date}-${s.kills}-${s.deaths}`} style={styles.card}>
+              <View style={styles.row}>
+                <Text style={styles.cardTitle}>
+                  {s.date.slice(5)} · {s.grade}
                 </Text>
-                <Text style={styles.historyResult}>
-                  {item.win ? "스크림 승리" : "스크림 패배"} · 퍼포먼스{" "}
-                  {item.performanceScore}
+                <Text style={s.win ? styles.win : styles.loss}>
+                  {s.win ? "승" : "패"}
                 </Text>
               </View>
-              <Text style={styles.grade}>{item.grade}</Text>
+              <Text style={styles.cardText}>
+                {s.kills}/{s.deaths}/{s.assists} · 퍼포먼스 {s.performanceScore}
+              </Text>
             </View>
           ))
         )}
 
-        <View style={styles.coachBox}>
-          <Text style={styles.label}>코치 의견</Text>
-          <Text style={styles.coachText}>
-            {game.player.academyPromotionReady
-              ? '"최근 경기력이 충분히 올라왔다. 아카데미 합류를 검토하겠다."'
-              : game.player.coachTrust >= 45
-                ? '"가능성은 보인다. 다음 평가에서도 꾸준함을 보여줘라."'
-                : '"아직은 더 증명해야 한다. 기본기와 팀 플레이에 집중해라."'}
-          </Text>
-        </View>
+        <Text style={styles.sectionTitle}>월간 평가 기록</Text>
+        {evaluations.length === 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.muted}>아직 월간 평가 기록이 없습니다.</Text>
+          </View>
+        ) : (
+          evaluations.map((e, i) => (
+            <View key={`${e.date}-${i}`} style={styles.card}>
+              <View style={styles.row}>
+                <Text style={styles.evalGrade}>{e.grade}</Text>
+                <Text style={styles.cardTitle}>{e.date}</Text>
+                <Text style={styles.score}>{e.performanceScore}점</Text>
+              </View>
+              {e.matchScore != null && (
+                <>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>평가전 50%</Text>
+                    <Text style={styles.detailValue}>{e.matchScore}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>스크림 25%</Text>
+                    <Text style={styles.detailValue}>{e.scrimScore}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>OVR 15%</Text>
+                    <Text style={styles.detailValue}>{e.ovrScore}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>준비 상태 10%</Text>
+                    <Text style={styles.detailValue}>{e.readinessScore}</Text>
+                  </View>
+                </>
+              )}
+              {e.rankBefore != null && e.rankAfter != null && (
+                <Text style={styles.change}>
+                  팀 내 순위 {e.rankBefore}위 → {e.rankAfter}위 · 코치 신뢰{" "}
+                  {e.coachTrustBefore} → {e.coachTrustAfter}
+                </Text>
+              )}
+              {e.promotionChanceAfter && (
+                <Text style={styles.change}>
+                  승격 가능성 {e.promotionChanceBefore} →{" "}
+                  {e.promotionChanceAfter}
+                </Text>
+              )}
+            </View>
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#0C1014" },
-  content: { padding: 20, paddingBottom: 40 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  back: { color: "#9BA5AE", fontSize: 13, fontWeight: "800", marginBottom: 22 },
-  kicker: { color: LIME, fontSize: 10, fontWeight: "900", letterSpacing: 1.2 },
-  title: {
-    color: "#FFF",
-    fontSize: 30,
-    fontWeight: "900",
-    marginTop: 4,
-    marginBottom: 18,
-  },
-
-  summary: {
+  safe: { flex: 1, backgroundColor: "#0B0E10" },
+  content: { padding: 20, paddingBottom: 42 },
+  loading: { color: "#FFF", padding: 24 },
+  header: {
     flexDirection: "row",
-    gap: 8,
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 20,
   },
-  summaryItem: {
-    flex: 1,
-    minHeight: 90,
-    borderRadius: 16,
-    backgroundColor: "#161C22",
-    borderWidth: 1,
-    borderColor: "#29313A",
-    padding: 13,
+  back: { color: "#FFF", fontSize: 38, lineHeight: 40 },
+  kicker: { color: LIME, fontSize: 10, fontWeight: "900", letterSpacing: 1.2 },
+  title: { color: "#FFF", fontSize: 24, fontWeight: "900" },
+  hero: {
+    flexDirection: "row",
     justifyContent: "space-between",
-  },
-  label: { color: "#818B95", fontSize: 9, fontWeight: "900" },
-  value: { color: "#FFF", fontSize: 22, fontWeight: "900" },
-  sub: { color: "#7F8993", fontSize: 10 },
-
-  promotionCard: {
-    marginTop: 10,
-    borderRadius: 16,
-    backgroundColor: "#151A20",
+    backgroundColor: "#161B20",
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
-    borderColor: "#29313A",
-    padding: 16,
+    borderColor: "#28313A",
   },
-  promotion: { color: LIME, fontSize: 24, fontWeight: "900", marginTop: 4 },
-  ready: { color: LIME, fontSize: 11, fontWeight: "800", marginTop: 7 },
-  muted: { color: "#7F8993", fontSize: 11, fontWeight: "700", marginTop: 7 },
-
+  heroLabel: { color: "#7F8993", fontSize: 10, fontWeight: "800" },
+  rank: { color: "#FFF", fontSize: 30, fontWeight: "900", marginTop: 3 },
+  promotionBox: { alignItems: "flex-end" },
+  promotion: { color: LIME, fontSize: 22, fontWeight: "900", marginTop: 5 },
+  metricRow: { flexDirection: "row", gap: 10, marginTop: 10 },
+  metric: {
+    flex: 1,
+    backgroundColor: "#12171B",
+    padding: 14,
+    borderRadius: 14,
+  },
+  metricLabel: { color: "#78828B", fontSize: 10, fontWeight: "800" },
+  metricValue: { color: "#FFF", fontSize: 20, fontWeight: "900", marginTop: 4 },
+  nextCard: {
+    marginTop: 12,
+    backgroundColor: "#11171A",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#263139",
+  },
+  cardKicker: { color: LIME, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  nextTitle: { color: "#FFF", fontSize: 16, fontWeight: "900", marginTop: 5 },
+  nextDday: {
+    color: LIME,
+    fontSize: 24,
+    fontWeight: "900",
+    position: "absolute",
+    right: 16,
+    top: 18,
+  },
   sectionTitle: {
     color: "#FFF",
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: "900",
     marginTop: 24,
+    marginBottom: 10,
+  },
+  summary: {
+    backgroundColor: "#151A1F",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 9,
+  },
+  summaryMain: { color: "#FFF", fontSize: 18, fontWeight: "900" },
+  summaryText: {
+    color: "#8E98A1",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  card: {
+    backgroundColor: "#12171B",
+    borderRadius: 14,
+    padding: 14,
     marginBottom: 8,
   },
-  empty: { borderRadius: 14, backgroundColor: "#151A20", padding: 16 },
-  historyRow: {
-    minHeight: 64,
-    borderRadius: 14,
-    backgroundColor: "#151A20",
-    paddingHorizontal: 15,
-    marginBottom: 7,
+  row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  historyDate: { color: "#FFF", fontSize: 13, fontWeight: "900" },
-  historyResult: {
-    color: "#7F8993",
-    fontSize: 9,
-    fontWeight: "700",
-    marginTop: 3,
+  cardTitle: { color: "#FFF", fontWeight: "900" },
+  cardText: { color: "#9AA3AB", fontSize: 11, fontWeight: "700", marginTop: 6 },
+  win: { color: LIME, fontWeight: "900" },
+  loss: { color: "#FF646D", fontWeight: "900" },
+  muted: { color: "#77818A" },
+  evalGrade: { color: LIME, fontSize: 22, fontWeight: "900" },
+  score: { color: "#FFF", fontWeight: "900" },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 7,
   },
-  grade: { color: LIME, fontSize: 25, fontWeight: "900" },
-
-  coachBox: {
-    marginTop: 16,
-    borderRadius: 16,
-    backgroundColor: "#1A2026",
-    padding: 16,
-  },
-  coachText: {
-    color: "#D8DEE4",
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: "700",
-    marginTop: 8,
-  },
+  detailLabel: { color: "#7F8993", fontSize: 10, fontWeight: "700" },
+  detailValue: { color: "#DDE3E8", fontSize: 10, fontWeight: "900" },
+  change: { color: "#AEB6BD", fontSize: 10, fontWeight: "700", marginTop: 9 },
 });

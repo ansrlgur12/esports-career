@@ -13,6 +13,8 @@ import {
 import {
     completeAcademyMatch,
     completeTraineeEvaluation,
+    completeTraineeScrim,
+    getAcademyMatchInfo,
     getDayType,
 } from "../game/engine";
 import {
@@ -42,7 +44,11 @@ export default function MatchScreen() {
         if (!mounted || !loaded) return;
 
         const dayType = getDayType(loaded.date, loaded.player.careerStage);
-        if (dayType !== "EVALUATION" && dayType !== "ACADEMY_MATCH") {
+        if (
+          dayType !== "EVALUATION" &&
+          dayType !== "SCRIM" &&
+          dayType !== "ACADEMY_MATCH"
+        ) {
           router.replace("/");
           return;
         }
@@ -70,10 +76,13 @@ export default function MatchScreen() {
   const moment = currentMoment(match);
   const matchDayType = getDayType(game.date, game.player.careerStage);
   const isAcademyOfficial = matchDayType === "ACADEMY_MATCH";
+  const isTraineeEvaluation = matchDayType === "EVALUATION";
+  const isRegularScrim = matchDayType === "SCRIM";
+  const academyMatch = isAcademyOfficial ? getAcademyMatchInfo(game) : null;
 
   async function progress() {
     if (!game || !match || moment) return;
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const next =
       match.momentIndex >= 3
@@ -110,14 +119,24 @@ export default function MatchScreen() {
           playerKills: result.playerKills,
           playerDeaths: result.playerDeaths,
           playerAssists: result.playerAssists,
-        })
-      : completeTraineeEvaluation(game, {
-          grade: result.grade,
           performanceScore: result.performanceScore,
-          win: result.win,
-          coachTrustDelta: result.coachTrustDelta,
-          starterCompetitionDelta: result.starterCompetitionDelta,
-        });
+        })
+      : isTraineeEvaluation
+        ? completeTraineeEvaluation(game, {
+            grade: result.grade,
+            performanceScore: result.performanceScore,
+            win: result.win,
+            coachTrustDelta: result.coachTrustDelta,
+            starterCompetitionDelta: result.starterCompetitionDelta,
+          })
+        : completeTraineeScrim(game, {
+            grade: result.grade,
+            performanceScore: result.performanceScore,
+            win: result.win,
+            playerKills: result.playerKills,
+            playerDeaths: result.playerDeaths,
+            playerAssists: result.playerAssists,
+          });
     await saveGame(next);
     router.replace("/");
   }
@@ -132,15 +151,25 @@ export default function MatchScreen() {
             {isAcademyOfficial ? "ACADEMY LEAGUE" : "SCRIM COMPLETE"}
           </Text>
           <Text style={styles.resultHeadline}>
-            {r.win ? "스크림 승리" : "스크림 패배"}
+            {r.win
+              ? isAcademyOfficial
+                ? "공식전 승리"
+                : "스크림 승리"
+              : isAcademyOfficial
+                ? "공식전 패배"
+                : "스크림 패배"}
           </Text>
 
           <View style={styles.scoreCard}>
-            <Text style={styles.teamName}>우리 연습생팀</Text>
+            <Text style={styles.teamName}>
+              {isAcademyOfficial ? "우리 ACADEMY" : "우리 연습생팀"}
+            </Text>
             <Text style={styles.finalScore}>
               {r.teamKills} : {r.enemyKills}
             </Text>
-            <Text style={styles.teamName}>NOVA ACADEMY</Text>
+            <Text style={styles.teamName}>
+              {academyMatch?.opponent.name ?? "NOVA ACADEMY"}
+            </Text>
           </View>
 
           <View style={styles.kdaCard}>
@@ -153,11 +182,45 @@ export default function MatchScreen() {
             </Text>
           </View>
 
+          {isTraineeEvaluation && (
+            <View style={styles.evaluationBreakdown}>
+              <Text style={styles.cardLabel}>MONTHLY EVALUATION</Text>
+              <Text style={styles.breakdownTitle}>월간 종합 평가 산정</Text>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>오늘 평가전</Text>
+                <Text style={styles.breakdownValue}>
+                  {r.performanceScore} × 50%
+                </Text>
+              </View>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>최근 정기 스크림</Text>
+                <Text style={styles.breakdownValue}>최근 기록 × 25%</Text>
+              </View>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>현재 기량</Text>
+                <Text style={styles.breakdownValue}>OVR × 15%</Text>
+              </View>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>준비 상태</Text>
+                <Text style={styles.breakdownValue}>
+                  컨디션 · 체력 · 멘탈 × 10%
+                </Text>
+              </View>
+              <Text style={styles.breakdownHint}>
+                최종 월간 점수와 등급은 경기 종료 후 커리어 기록에 저장됩니다.
+              </Text>
+            </View>
+          )}
+
           <View style={styles.coachCard}>
             <View style={styles.gradeRow}>
               <View>
                 <Text style={styles.cardLabel}>
-                  {isAcademyOfficial ? "공식전 평가" : "코치 평가"}
+                  {isAcademyOfficial
+                    ? "공식전 평가"
+                    : isRegularScrim
+                      ? "스크림 피드백"
+                      : "월간 코치 평가"}
                 </Text>
                 <Text style={styles.performance}>
                   퍼포먼스 {r.performanceScore}
@@ -183,35 +246,41 @@ export default function MatchScreen() {
               </View>
             </View>
 
-            <View style={styles.deltaRow}>
-              <Text style={styles.deltaText}>
-                코치 신뢰{" "}
-                <Text
-                  style={[
-                    styles.positive,
-                    r.coachTrustDelta < 0 && styles.negative,
-                  ]}
-                >
-                  {signed(r.coachTrustDelta)}
+            {!isRegularScrim && (
+              <View style={styles.deltaRow}>
+                <Text style={styles.deltaText}>
+                  코치 신뢰{" "}
+                  <Text
+                    style={[
+                      styles.positive,
+                      r.coachTrustDelta < 0 && styles.negative,
+                    ]}
+                  >
+                    {signed(r.coachTrustDelta)}
+                  </Text>
                 </Text>
-              </Text>
-              <Text style={styles.deltaText}>
-                주전 경쟁{" "}
-                <Text
-                  style={[
-                    styles.positive,
-                    r.starterCompetitionDelta < 0 && styles.negative,
-                  ]}
-                >
-                  {signed(r.starterCompetitionDelta)}
+                <Text style={styles.deltaText}>
+                  주전 경쟁{" "}
+                  <Text
+                    style={[
+                      styles.positive,
+                      r.starterCompetitionDelta < 0 && styles.negative,
+                    ]}
+                  >
+                    {signed(r.starterCompetitionDelta)}
+                  </Text>
                 </Text>
-              </Text>
-            </View>
+              </View>
+            )}
           </View>
 
           <Pressable style={styles.primaryButton} onPress={finishEvaluation}>
             <Text style={styles.primaryButtonText}>
-              {isAcademyOfficial ? "경기 결과 확인" : "평가 확인"}
+              {isAcademyOfficial
+                ? "경기 결과 확인"
+                : isRegularScrim
+                  ? "스크림 종료"
+                  : "평가 확인"}
             </Text>
           </Pressable>
         </ScrollView>
@@ -226,10 +295,16 @@ export default function MatchScreen() {
           <Text style={styles.kicker}>
             {isAcademyOfficial
               ? "ACADEMY LEAGUE · OFFICIAL"
-              : "TRAINEE EVALUATION · SCRIM"}
+              : isRegularScrim
+                ? "TEAM SCRIM"
+                : "TRAINEE EVALUATION · MONTHLY"}
           </Text>
           <Text style={styles.headerTitle}>
-            {isAcademyOfficial ? "아카데미 리그" : "연습생 평가전"}
+            {isAcademyOfficial
+              ? "아카데미 리그"
+              : isRegularScrim
+                ? "정기 스크림"
+                : "월간 연습생 평가전"}
           </Text>
           <Text style={styles.headerSub}>
             {isAcademyOfficial
@@ -240,7 +315,9 @@ export default function MatchScreen() {
 
         <View style={styles.scoreboard}>
           <View style={styles.team}>
-            <Text style={styles.teamName}>우리 연습생팀</Text>
+            <Text style={styles.teamName}>
+              {isAcademyOfficial ? "우리 ACADEMY" : "우리 연습생팀"}
+            </Text>
             <Text style={styles.teamScore}>{match.teamKills}</Text>
           </View>
 
@@ -253,7 +330,9 @@ export default function MatchScreen() {
           </View>
 
           <View style={styles.team}>
-            <Text style={styles.teamName}>NOVA ACADEMY</Text>
+            <Text style={styles.teamName}>
+              {academyMatch?.opponent.name ?? "NOVA ACADEMY"}
+            </Text>
             <Text style={styles.teamScore}>{match.enemyKills}</Text>
           </View>
         </View>
@@ -424,6 +503,34 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
 
+  evaluationBreakdown: {
+    borderRadius: 18,
+    backgroundColor: "#12171C",
+    borderWidth: 1,
+    borderColor: "#29323A",
+    padding: 16,
+    marginBottom: 12,
+  },
+  breakdownTitle: {
+    color: "#FFF",
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  breakdownRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 5,
+  },
+  breakdownLabel: { color: "#8F99A3", fontSize: 11, fontWeight: "700" },
+  breakdownValue: { color: "#FFF", fontSize: 11, fontWeight: "900" },
+  breakdownHint: {
+    color: "#69737D",
+    fontSize: 9,
+    lineHeight: 14,
+    marginTop: 9,
+  },
   primaryButton: {
     height: 58,
     borderRadius: 16,
