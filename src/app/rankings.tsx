@@ -1,4 +1,4 @@
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
     Pressable,
@@ -8,7 +8,11 @@ import {
     Text,
     View,
 } from "react-native";
-import { getLeagueDashboard, getScheduleRange } from "../game/engine";
+import {
+    getLeagueDashboard,
+    getScheduleRange,
+    getSecondTeamLivingLeague,
+} from "../game/engine";
 import { loadGame } from "../storage/db";
 import type { GameState } from "../types/game";
 
@@ -49,6 +53,10 @@ export default function RankingsScreen() {
   const data = useMemo(() => (game ? getLeagueDashboard(game) : null), [game]);
   const schedule = useMemo(
     () => (game ? getScheduleRange(game, 56) : []),
+    [game],
+  );
+  const livingLeague = useMemo(
+    () => (game ? getSecondTeamLivingLeague(game) : []),
     [game],
   );
   if (!game || !data) return <SafeAreaView style={s.safe} />;
@@ -104,7 +112,18 @@ export default function RankingsScreen() {
         {tab === "LEAGUE" &&
           (league ? (
             data.standings.map((row) => (
-              <View key={row.team} style={[s.row, row.isMyTeam && s.myRow]}>
+              <Pressable
+                key={row.team}
+                onPress={() => {
+                  const team = livingLeague.find((t) => t.name === row.team);
+                  if (team)
+                    router.push({
+                      pathname: "/team-detail",
+                      params: { teamId: team.id },
+                    });
+                }}
+                style={[s.row, row.isMyTeam && s.myRow]}
+              >
                 <Text style={[s.rank, row.isMyTeam && s.accent]}>
                   {row.rank}
                 </Text>
@@ -125,7 +144,7 @@ export default function RankingsScreen() {
                   </Text>
                 </View>
                 <Text style={s.value}>{Math.round(row.winRate * 100)}%</Text>
-              </View>
+              </Pressable>
             ))
           ) : (
             <Empty text="아카데미 단계에는 공식 리그 순위가 없습니다." />
@@ -249,8 +268,24 @@ export default function RankingsScreen() {
         {tab === "KDA" &&
           (league ? (
             data.kda.map((row) => (
-              <View
+              <Pressable
                 key={`${row.team}-${row.name}`}
+                disabled={row.isPlayer}
+                onPress={() => {
+                  const player = livingLeague
+                    .flatMap((t) => t.roster)
+                    .find(
+                      (p) =>
+                        p.name === row.name &&
+                        livingLeague.find((t) => t.id === p.team)?.name ===
+                          row.team,
+                    );
+                  if (player)
+                    router.push({
+                      pathname: "/player-detail",
+                      params: { playerId: player.id },
+                    });
+                }}
                 style={[s.row, row.isPlayer && s.myRow]}
               >
                 <Text style={[s.rank, row.isPlayer && s.accent]}>
@@ -268,7 +303,7 @@ export default function RankingsScreen() {
                   {row.kills}/{row.deaths}/{row.assists}
                 </Text>
                 <Text style={s.value}>{row.kda.toFixed(2)}</Text>
-              </View>
+              </Pressable>
             ))
           ) : (
             <Empty text="2군 공식전 출전 기록이 생기면 KDA 순위가 집계됩니다." />
@@ -276,8 +311,24 @@ export default function RankingsScreen() {
 
         {tab === "LANE" &&
           data.lane.map((row) => (
-            <View
+            <Pressable
               key={`${row.team}-${row.name}`}
+              disabled={row.isPlayer}
+              onPress={() => {
+                const player = livingLeague
+                  .flatMap((t) => t.roster)
+                  .find(
+                    (p) =>
+                      p.name === row.name &&
+                      livingLeague.find((t) => t.id === p.team)?.name ===
+                        row.team,
+                  );
+                if (player)
+                  router.push({
+                    pathname: "/player-detail",
+                    params: { playerId: player.id },
+                  });
+              }}
               style={[s.row, row.isPlayer && s.myRow]}
             >
               <Text style={[s.rank, row.isPlayer && s.accent]}>{row.rank}</Text>
@@ -291,7 +342,7 @@ export default function RankingsScreen() {
               </View>
               <Text style={s.scoreLabel}>라인 지표</Text>
               <Text style={s.value}>{row.score}</Text>
-            </View>
+            </Pressable>
           ))}
       </ScrollView>
     </SafeAreaView>

@@ -89,6 +89,51 @@ export type SecondTeamLeagueTeamId =
   | "ECLIPSE"
   | "PHANTOM";
 
+export type SecondTeamPlayerArchetype =
+  | "CARRY"
+  | "ROAMER"
+  | "CONTROL"
+  | "AGGRESSIVE"
+  | "STABLE"
+  | "SHOTCALLER"
+  | "DEVELOPMENT";
+
+export interface SecondTeamLeaguePlayer {
+  id: string;
+  name: string;
+  team: SecondTeamLeagueTeamId;
+  position: Position;
+  age: number;
+  ovr: number;
+  potential: number;
+  form: number;
+  morale: number;
+  stamina: number;
+  synergy: number;
+  coachTrust: number;
+  archetype: SecondTeamPlayerArchetype;
+  starter: boolean;
+  seasonXp: number;
+  hotStreak: number;
+  coldStreak: number;
+  games: number;
+  sets: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  performanceTotal: number;
+  lastPerformance: number;
+}
+
+export interface SecondTeamLeagueTeam {
+  id: SecondTeamLeagueTeamId;
+  name: string;
+  basePower: number;
+  synergy: number;
+  form: number;
+  roster: SecondTeamLeaguePlayer[];
+}
+
 export interface SecondTeamLeagueMatchResult {
   round: number;
   teamA: SecondTeamLeagueTeamId;
@@ -98,20 +143,9 @@ export interface SecondTeamLeagueMatchResult {
   teamBSets: number;
 }
 
-export interface SecondTeamLeaguePlayerStat {
-  id: string;
-  name: string;
-  team: SecondTeamLeagueTeamId;
-  position: Position;
-  games: number;
-  kills: number;
-  deaths: number;
-  assists: number;
-}
-
 export interface SecondTeamLeagueState {
   results: SecondTeamLeagueMatchResult[];
-  players: SecondTeamLeaguePlayerStat[];
+  teams: SecondTeamLeagueTeam[];
 }
 
 export type SplitName = "SPRING" | "SUMMER";
