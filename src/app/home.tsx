@@ -18,6 +18,7 @@ import {
     generateActions,
     getCareerScheduleEntry,
     getDayLabel,
+    getSecondTeamCompetition,
     getSecondTeamMatchInfo,
     getSecondTeamMatchRole,
     getUpcomingSchedule,
@@ -196,6 +197,10 @@ export default function HomeScreen() {
   const secondTeamRole =
     game.player.careerStage === "SECOND_TEAM"
       ? getSecondTeamMatchRole(game)
+      : null;
+  const secondTeamCompetition =
+    game.player.careerStage === "SECOND_TEAM"
+      ? getSecondTeamCompetition(game)
       : null;
   const morningEventPending =
     game.slot === "MORNING" &&
@@ -425,9 +430,17 @@ export default function HomeScreen() {
                 {secondTeamMatch?.opponent.power}
               </Text>
               <Text style={styles.eventDate}>
+                포지션 경쟁 · {game.player.name}{" "}
+                {secondTeamCompetition?.playerScore ?? 0}
+                {" : "}
+                {secondTeamCompetition?.starter.name ?? "주전"}{" "}
+                {secondTeamCompetition?.starterScore ?? 0}
+              </Text>
+              <Text style={styles.eventDate}>
+                1세트 선발 ·{" "}
                 {secondTeamRole?.role === "PLAY"
-                  ? `출전 명단 포함 · 출전 가능성 ${secondTeamRole.appearanceChance}%`
-                  : `벤치 대기 · 출전 가능성 ${secondTeamRole?.appearanceChance ?? 0}%`}
+                  ? game.player.name
+                  : secondTeamCompetition?.starter.name}
               </Text>
               <Text style={styles.eventDate}>{secondTeamRole?.reason}</Text>
             </View>
@@ -435,9 +448,11 @@ export default function HomeScreen() {
               <Pressable
                 style={styles.scrimStartButton}
                 disabled={isResolving}
-                onPress={() => router.push("/match")}
+                onPress={() =>
+                  router.push({ pathname: "/match", params: { mode: "play" } })
+                }
               >
-                <Text style={styles.scrimStartButtonText}>출전하기</Text>
+                <Text style={styles.scrimStartButtonText}>1세트 선발 출전</Text>
               </Pressable>
             ) : (
               <Pressable

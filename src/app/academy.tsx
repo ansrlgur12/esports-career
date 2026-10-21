@@ -15,6 +15,7 @@ import {
     getPositionStandings,
     getPromotionChanceLabel,
     getSecondTeamCallupCandidates,
+    getSecondTeamCompetition,
 } from "../game/engine";
 import { loadGame } from "../storage/db";
 import { GameState } from "../types/game";
@@ -64,6 +65,7 @@ export default function AcademyScreen() {
   if (game.player.careerStage === "SECOND_TEAM") {
     const season = game.player.secondTeamSeason;
     const stats = game.player.seasonStats;
+    const competition = getSecondTeamCompetition(game);
     const appearances = (season.matchHistory ?? []).filter(
       (match) => match.playerParticipated,
     ).length;
@@ -76,14 +78,7 @@ export default function AcademyScreen() {
         : stats.deaths === 0
           ? stats.kills + stats.assists
           : (stats.kills + stats.assists) / stats.deaths;
-    const competitionLabel =
-      game.player.starterCompetition >= 70
-        ? "주전 경쟁 우세"
-        : game.player.starterCompetition >= 50
-          ? "주전 경쟁 중"
-          : game.player.starterCompetition >= 30
-            ? "교체 출전 경쟁"
-            : "벤치 경쟁";
+    const competitionLabel = competition.status;
     const firstTeamLabel =
       season.firstTeamInterest >= 75
         ? "매우 높음"
@@ -128,6 +123,76 @@ export default function AcademyScreen() {
               <Text style={styles.metricLabel}>주전 경쟁</Text>
               <Text style={styles.metricValue}>
                 {game.player.starterCompetition}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>
+            {game.player.position} 주전 경쟁
+          </Text>
+          <View style={styles.card}>
+            <View style={styles.competitionHeader}>
+              <Text style={styles.competitionStatus}>{competition.status}</Text>
+              <Text style={styles.competitionGap}>
+                격차 {competition.gap > 0 ? "+" : ""}
+                {competition.gap}
+              </Text>
+            </View>
+
+            <View style={styles.competitorRow}>
+              <View style={styles.competitorInfo}>
+                <Text style={styles.youBadge}>YOU</Text>
+                <Text style={styles.competitorName}>{game.player.name}</Text>
+                <Text style={styles.competitorMeta}>
+                  {game.player.position} · OVR{" "}
+                  {Math.round(
+                    game.player.stats.physical * 0.05 +
+                      game.player.stats.reaction * 0.05 +
+                      game.player.stats.accuracy * 0.05 +
+                      game.player.stats.movement * 0.05 +
+                      game.player.stats.focus * 0.05 +
+                      game.player.stats.laning * 0.08 +
+                      game.player.stats.cs * 0.06 +
+                      game.player.stats.killSense * 0.06 +
+                      game.player.stats.survival * 0.05 +
+                      game.player.stats.champPool * 0.05 +
+                      game.player.stats.macro * 0.08 +
+                      game.player.stats.vision * 0.05 +
+                      game.player.stats.decision * 0.08 +
+                      game.player.stats.objective * 0.05 +
+                      game.player.stats.teamfight * 0.08 +
+                      game.player.stats.calling * 0.04 +
+                      game.player.stats.synergy * 0.04 +
+                      game.player.stats.mental * 0.03,
+                  )}
+                </Text>
+              </View>
+              <Text style={styles.competitionScore}>
+                {competition.playerScore}
+              </Text>
+            </View>
+
+            <View style={styles.vsDivider}>
+              <Text style={styles.vsText}>VS</Text>
+            </View>
+
+            <View style={styles.competitorRow}>
+              <View style={styles.competitorInfo}>
+                <Text style={styles.starterBadge}>STARTER</Text>
+                <Text style={styles.competitorName}>
+                  {competition.starter.name}
+                </Text>
+                <Text style={styles.competitorMeta}>
+                  {competition.starter.position} · OVR {competition.starter.ovr}
+                  {" · "}폼 {competition.starter.form}
+                </Text>
+                <Text style={styles.competitorMeta}>
+                  최근 KDA {competition.starter.recentKda.toFixed(2)}
+                  {" · "}코치 신뢰 {competition.starter.coachTrust}
+                </Text>
+              </View>
+              <Text style={styles.competitionScore}>
+                {competition.starterScore}
               </Text>
             </View>
           </View>
@@ -601,6 +666,54 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     marginTop: 4,
+  },
+  competitionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  competitionStatus: { color: LIME, fontSize: 15, fontWeight: "900" },
+  competitionGap: { color: "#7F8993", fontSize: 11, fontWeight: "800" },
+  competitorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  competitorInfo: { flex: 1 },
+  competitorName: {
+    color: "#FFF",
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  competitorMeta: {
+    color: "#8E98A1",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  competitionScore: { color: "#FFF", fontSize: 28, fontWeight: "900" },
+  youBadge: { color: LIME, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  starterBadge: {
+    color: "#FFB84D",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  vsDivider: {
+    borderTopWidth: 1,
+    borderTopColor: "#252D33",
+    marginVertical: 12,
+    alignItems: "center",
+  },
+  vsText: {
+    color: "#59636C",
+    backgroundColor: "#12171B",
+    paddingHorizontal: 8,
+    marginTop: -7,
+    fontSize: 9,
+    fontWeight: "900",
   },
   card: {
     backgroundColor: "#12171B",

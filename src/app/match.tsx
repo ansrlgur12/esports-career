@@ -15,8 +15,10 @@ import {
     completeAcademyScrim,
     completeObservedSecondTeamMatch,
     completeSecondTeamMatch,
+    decideSecondTeamNextSetRole,
     getDayType,
     getSecondTeamMatchInfo,
+    getSecondTeamMatchRole,
 } from "../game/engine";
 import {
     advanceScrim,
@@ -67,17 +69,23 @@ export default function MatchScreen() {
         }
 
         setGame(loaded);
-        const simulationGame = startsOnBench
-          ? {
+        const officialRole =
+          dayType === "SECOND_TEAM_MATCH"
+            ? getSecondTeamMatchRole(loaded)
+            : null;
+        const initialPlayerInSet =
+          officialRole != null ? officialRole.role === "PLAY" : !startsOnBench;
+        const simulationGame = initialPlayerInSet
+          ? { ...loaded, actionSeed: loaded.actionSeed + 101 }
+          : {
               ...loaded,
               actionSeed: loaded.actionSeed + 101,
               player: {
                 ...loaded.player,
                 name: `VORTEX ${loaded.player.position}`,
               },
-            }
-          : { ...loaded, actionSeed: loaded.actionSeed + 101 };
-        setPlayerInSet(!startsOnBench);
+            };
+        setPlayerInSet(initialPlayerInSet);
         setMatch(createScrim(simulationGame));
       });
 
@@ -130,6 +138,17 @@ export default function MatchScreen() {
 
     return () => clearTimeout(timer);
   }, [game, match, playerInSet, setNumber]);
+
+  // 선택 결과 메시지는 1.4초 동안 보여준 뒤 자동으로 사라진다.
+  useEffect(() => {
+    if (!choiceMessage) return;
+
+    const timer = setTimeout(() => {
+      setChoiceMessage(null);
+    }, 1400);
+
+    return () => clearTimeout(timer);
+  }, [choiceMessage]);
 
   if (!game || !match) {
     return (
@@ -188,21 +207,23 @@ export default function MatchScreen() {
 
     const nextSetNumber = setNumber + 1;
 
-    // LoL 교체 규칙: 진행 중인 세트에서는 절대 교체하지 않는다.
-    // 엔트리 변경은 세트 종료 후 다음 세트 시작 전에만 감독이 결정한다.
-    let nextPlayerInSet = playerInSet;
-    if (!playerInSet) {
-      const substitutionRoll =
-        (((game.actionSeed + nextSetNumber * 37 + nextEnemyWins * 19) % 100) +
-          100) %
-        100;
-      const substitutionChance = result.win ? 22 : 48;
-      nextPlayerInSet = substitutionRoll < substitutionChance;
-    }
+    // LoL 규칙: 세트 도중에는 교체하지 않는다.
+    // 방금 끝난 세트의 실제 경기력 + 기존 주전 경쟁 데이터를 바탕으로
+    // 다음 세트 시작 전에만 코치진이 엔트리를 다시 결정한다.
+    const lineupDecision = decideSecondTeamNextSetRole(
+      game,
+      playerInSet,
+      {
+        win: result.win,
+        performanceScore: result.performanceScore,
+      },
+      nextSetNumber,
+    );
+    const nextPlayerInSet = lineupDecision.playerInSet;
 
     setPlayerInSet(nextPlayerInSet);
+    setChoiceMessage(lineupDecision.reason);
     setSetNumber(nextSetNumber);
-    setChoiceMessage(null);
 
     const nextSetGame = nextPlayerInSet
       ? { ...game, actionSeed: game.actionSeed + nextSetNumber * 101 }

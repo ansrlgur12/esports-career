@@ -1311,6 +1311,7 @@ export function completeSecondTeamMatch(
     deaths: result.playerDeaths,
     assists: result.playerAssists,
     performanceScore: result.performanceScore,
+    playerParticipated: true,
   };
 
   const wins = season.wins + (result.win ? 1 : 0);
@@ -1728,6 +1729,78 @@ export function calculateOvr(stats: Stats, position: Position): number {
 
 export type SecondTeamMatchRole = "PLAY" | "BENCH";
 
+export interface SecondTeamStarterProfile {
+  id: string;
+  name: string;
+  position: Position;
+  age: number;
+  ovr: number;
+  form: number;
+  coachTrust: number;
+  recentKda: number;
+}
+
+export interface SecondTeamCompetitionInfo {
+  starter: SecondTeamStarterProfile;
+  playerScore: number;
+  starterScore: number;
+  gap: number;
+  status: string;
+}
+
+const SECOND_TEAM_STARTERS: Record<Position, SecondTeamStarterProfile> = {
+  TOP: {
+    id: "vortex2-top-rook",
+    name: "ROOK",
+    position: "TOP",
+    age: 19,
+    ovr: 59,
+    form: 72,
+    coachTrust: 69,
+    recentKda: 3.15,
+  },
+  JUNGLE: {
+    id: "vortex2-jg-lynx",
+    name: "LYNX",
+    position: "JUNGLE",
+    age: 18,
+    ovr: 60,
+    form: 75,
+    coachTrust: 71,
+    recentKda: 4.02,
+  },
+  MID: {
+    id: "vortex2-mid-kain",
+    name: "KAIN",
+    position: "MID",
+    age: 18,
+    ovr: 58,
+    form: 78,
+    coachTrust: 72,
+    recentKda: 4.31,
+  },
+  BOT: {
+    id: "vortex2-bot-rex",
+    name: "REX",
+    position: "BOT",
+    age: 19,
+    ovr: 61,
+    form: 74,
+    coachTrust: 73,
+    recentKda: 4.68,
+  },
+  SUPPORT: {
+    id: "vortex2-sup-noah",
+    name: "NOAH",
+    position: "SUPPORT",
+    age: 20,
+    ovr: 57,
+    form: 80,
+    coachTrust: 76,
+    recentKda: 5.12,
+  },
+};
+
 function stableNumber(seedText: string): number {
   let hash = 2166136261;
   for (let i = 0; i < seedText.length; i += 1) {
@@ -1737,45 +1810,129 @@ function stableNumber(seedText: string): number {
   return (hash >>> 0) / 4294967295;
 }
 
+export function getSecondTeamStarter(state: GameState) {
+  return SECOND_TEAM_STARTERS[state.player.position];
+}
+
+export function getSecondTeamCompetition(
+  state: GameState,
+): SecondTeamCompetitionInfo {
+  const starter = getSecondTeamStarter(state);
+  const playerOvr = calculateOvr(state.player.stats, state.player.position);
+
+  // 실제 경쟁 점수. 기존 starterCompetition은 "팀 내 입지/훈련 평가"로 계속 활용한다.
+  const playerScore = Math.round(
+    playerOvr * 0.35 +
+      state.player.coachTrust * 0.25 +
+      state.player.starterCompetition * 0.25 +
+      state.player.condition * 0.1 +
+      Math.max(0, 100 - state.player.stress) * 0.05,
+  );
+  const starterScore = Math.round(
+    starter.ovr * 0.4 +
+      starter.coachTrust * 0.25 +
+      starter.form * 0.25 +
+      Math.min(100, starter.recentKda * 15) * 0.1,
+  );
+  const gap = playerScore - starterScore;
+
+  const status =
+    gap >= 8
+      ? `${state.player.name} 주전 우세`
+      : gap >= 2
+        ? `${state.player.name} 근소 우세`
+        : gap > -3
+          ? "주전 경쟁 접전"
+          : gap > -9
+            ? `${starter.name} 근소 우세`
+            : `${starter.name} 주전 우세`;
+
+  return { starter, playerScore, starterScore, gap, status };
+}
+
 export function getSecondTeamMatchRole(state: GameState) {
   if (state.player.careerStage !== "SECOND_TEAM") {
     return {
       role: "BENCH" as SecondTeamMatchRole,
       appearanceChance: 0,
       reason: "2군 로스터 소속이 아닙니다.",
+      ...getSecondTeamCompetition(state),
     };
   }
-  const chance = Math.max(
-    10,
-    Math.min(
-      82,
-      Math.round(
-        10 +
-          state.player.starterCompetition * 0.55 +
-          state.player.coachTrust * 0.2,
-      ),
-    ),
+
+  const competition = getSecondTeamCompetition(state);
+  const variation =
+    (stableNumber(
+      `${state.date}|${state.player.secondTeamSeason.round}|${state.actionSeed}|starter`,
+    ) -
+      0.5) *
+    12;
+  const effectiveGap = competition.gap + variation;
+  const role: SecondTeamMatchRole = effectiveGap >= 0 ? "PLAY" : "BENCH";
+  const appearanceChance = Math.max(
+    8,
+    Math.min(92, Math.round(50 + competition.gap * 4)),
   );
-  const roll =
-    stableNumber(
-      `${state.date}|${state.player.secondTeamSeason.round}|${state.actionSeed}|appearance`,
-    ) * 100;
-  if (roll < chance)
-    return {
-      role: "PLAY" as SecondTeamMatchRole,
-      appearanceChance: chance,
-      reason:
-        state.player.starterCompetition >= 55
-          ? "최근 훈련과 주전 경쟁에서 좋은 평가를 받아 출전 명단에 포함됐습니다."
-          : "코치진이 실전 경험을 주기 위해 이번 경기 출전 기회를 부여했습니다.",
-    };
+
   return {
-    role: "BENCH" as SecondTeamMatchRole,
-    appearanceChance: chance,
+    role,
+    appearanceChance,
+    ...competition,
     reason:
-      state.player.starterCompetition < 35
-        ? "아직 주전 경쟁에서 앞선 선수가 있어 이번 경기는 벤치에서 대기합니다."
-        : "이번 경기 선발 조합에서 제외됐습니다. 벤치에서 경기를 지켜보며 다음 기회를 준비합니다.",
+      role === "PLAY"
+        ? `${competition.starter.name}과의 주전 경쟁 평가에서 앞서 1세트 선발로 결정됐습니다.`
+        : `${competition.starter.name}이 1세트 선발입니다. 주인공은 벤치에서 대기합니다.`,
+  };
+}
+
+export function decideSecondTeamNextSetRole(
+  state: GameState,
+  currentPlayerInSet: boolean,
+  result: { win: boolean; performanceScore: number },
+  nextSetNumber: number,
+) {
+  const competition = getSecondTeamCompetition(state);
+  const variance =
+    (stableNumber(
+      `${state.date}|${state.player.secondTeamSeason.round}|set-${nextSetNumber}|lineup`,
+    ) -
+      0.5) *
+    8;
+
+  if (currentPlayerInSet) {
+    const performanceBoost =
+      (result.performanceScore - 65) * 0.45 + (result.win ? 4 : -3);
+    const keepScore =
+      competition.playerScore +
+      performanceBoost -
+      competition.starterScore +
+      variance;
+    const playerInSet = keepScore >= -2;
+
+    return {
+      playerInSet,
+      starter: competition.starter,
+      reason: playerInSet
+        ? `${state.player.name}의 ${nextSetNumber - 1}세트 경기력을 반영해 선발을 유지합니다.`
+        : `${state.player.name}의 경기력이 기대에 못 미쳐 ${competition.starter.name}이 ${nextSetNumber}세트에 투입됩니다.`,
+    };
+  }
+
+  // 벤치에서 본 세트의 performanceScore는 실제로 출전한 동일 포지션 주전 NPC의 경기력으로 본다.
+  const starterSetScore =
+    competition.starterScore +
+    (result.performanceScore - 65) * 0.4 +
+    (result.win ? 4 : -4);
+  const substitutionScore =
+    competition.playerScore - starterSetScore + variance;
+  const playerInSet = substitutionScore >= -4;
+
+  return {
+    playerInSet,
+    starter: competition.starter,
+    reason: playerInSet
+      ? `${competition.starter.name}의 이전 세트 경기력을 검토한 코치진이 ${state.player.name}을 ${nextSetNumber}세트 선발로 투입합니다.`
+      : `${competition.starter.name}이 ${nextSetNumber}세트 선발을 유지합니다.`,
   };
 }
 
