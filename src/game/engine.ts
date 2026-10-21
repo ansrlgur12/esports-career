@@ -14,7 +14,11 @@ import {
   SecondTeamLeagueState,
   SecondTeamLeagueTeamId,
   SecondTeamMatchRecord,
+  SecondTeamPlayoffSeries,
+  SecondTeamPlayoffStage,
+  SecondTeamPlayoffState,
   SecondTeamStarterSeriesStats,
+  SecondTeamTiebreakerResult,
   StatKey,
   Stats,
   StatXp,
@@ -1378,6 +1382,12 @@ export function completeSecondTeamMatch(
   const realStandings = calculateLeagueStandings(leagueState.results);
   const realTeamRank =
     realStandings.findIndex((row) => row.team === "VORTEX") + 1;
+  const completedRegularSeason = matchInfo.round >= 18;
+  const nextPhase = completedRegularSeason
+    ? leagueState.playoffs?.vortexQualified
+      ? "PLAYOFFS"
+      : "OFFSEASON"
+    : season.phase;
 
   return {
     ...current,
@@ -1395,6 +1405,7 @@ export function completeSecondTeamMatch(
       },
       secondTeamSeason: {
         ...season,
+        phase: nextPhase,
         round: season.round + 1,
         wins,
         losses,
@@ -2142,6 +2153,12 @@ export function completeObservedSecondTeamMatch(
   const realStandings = calculateLeagueStandings(leagueState.results);
   const realTeamRank =
     realStandings.findIndex((row) => row.team === "VORTEX") + 1;
+  const completedRegularSeason = matchInfo.round >= 18;
+  const nextPhase = completedRegularSeason
+    ? leagueState.playoffs?.vortexQualified
+      ? "PLAYOFFS"
+      : "OFFSEASON"
+    : season.phase;
   const record = {
     round: matchInfo.round,
     date: current.date,
@@ -2165,6 +2182,7 @@ export function completeObservedSecondTeamMatch(
       morningEventCompletedDate: current.date,
       secondTeamSeason: {
         ...season,
+        phase: nextPhase,
         round: season.round + 1,
         wins,
         losses,
@@ -2585,10 +2603,43 @@ function applyCompletedLeagueRound(
     livingLeague = applySeriesToLivingRosters(livingLeague, simulated);
   }
 
-  return { ...livingLeague, results: [...league.results, ...newResults] };
+  const completedLeague = {
+    ...livingLeague,
+    results: [...league.results, ...newResults],
+  };
+  return round >= 18 ? ensurePlayoffs(state, completedLeague) : completedLeague;
 }
 
-function calculateLeagueStandings(results: SecondTeamLeagueMatchResult[]) {
+type InternalStandingRow = {
+  team: SecondTeamLeagueTeamId;
+  wins: number;
+  losses: number;
+  setWins: number;
+  setLosses: number;
+  setDiff: number;
+};
+
+function getHeadToHeadScore(
+  results: SecondTeamLeagueMatchResult[],
+  a: SecondTeamLeagueTeamId,
+  b: SecondTeamLeagueTeamId,
+) {
+  return results
+    .filter(
+      (result) =>
+        (result.teamA === a && result.teamB === b) ||
+        (result.teamA === b && result.teamB === a),
+    )
+    .reduce(
+      (score, result) =>
+        score + (result.winner === a ? 1 : result.winner === b ? -1 : 0),
+      0,
+    );
+}
+
+function buildRawStandings(
+  results: SecondTeamLeagueMatchResult[],
+): InternalStandingRow[] {
   const table = new Map<
     SecondTeamLeagueTeamId,
     { wins: number; losses: number; setWins: number; setLosses: number }
@@ -2596,46 +2647,231 @@ function calculateLeagueStandings(results: SecondTeamLeagueMatchResult[]) {
   LEAGUE_TEAM_IDS.forEach((team) =>
     table.set(team, { wins: 0, losses: 0, setWins: 0, setLosses: 0 }),
   );
-
-  results.forEach((result) => {
-    const a = table.get(result.teamA)!;
-    const b = table.get(result.teamB)!;
-    a.setWins += result.teamASets;
-    a.setLosses += result.teamBSets;
-    b.setWins += result.teamBSets;
-    b.setLosses += result.teamASets;
-    if (result.winner === result.teamA) {
-      a.wins += 1;
-      b.losses += 1;
-    } else {
-      b.wins += 1;
-      a.losses += 1;
-    }
-  });
-
-  const headToHead = (a: SecondTeamLeagueTeamId, b: SecondTeamLeagueTeamId) => {
-    const matches = results.filter(
-      (result) =>
-        (result.teamA === a && result.teamB === b) ||
-        (result.teamA === b && result.teamB === a),
-    );
-    return matches.reduce(
-      (score, result) =>
-        score + (result.winner === a ? 1 : result.winner === b ? -1 : 0),
-      0,
-    );
-  };
-
+  results
+    .filter((r) => r.round >= 1 && r.round <= 18)
+    .forEach((result) => {
+      const x = table.get(result.teamA)!;
+      const y = table.get(result.teamB)!;
+      x.setWins += result.teamASets;
+      x.setLosses += result.teamBSets;
+      y.setWins += result.teamBSets;
+      y.setLosses += result.teamASets;
+      if (result.winner === result.teamA) {
+        x.wins++;
+        y.losses++;
+      } else {
+        y.wins++;
+        x.losses++;
+      }
+    });
   return LEAGUE_TEAM_IDS.map((team) => {
     const row = table.get(team)!;
     return { team, ...row, setDiff: row.setWins - row.setLosses };
-  }).sort(
+  });
+}
+
+function tiebreakWinner(
+  state: GameState,
+  league: SecondTeamLeagueState,
+  a: SecondTeamLeagueTeamId,
+  b: SecondTeamLeagueTeamId,
+) {
+  const powerA = getLivingTeamPower(getLeagueTeam(league, a));
+  const powerB = getLivingTeamPower(getLeagueTeam(league, b));
+  const chanceA = Math.max(
+    0.18,
+    Math.min(0.82, 0.5 + (powerA - powerB) * 0.04),
+  );
+  const roll = stableNumber(
+    `${state.player.secondTeamSeason.year ?? 2027}|${state.player.secondTeamSeason.split ?? "SPRING"}|TB|${[a, b].sort().join("|")}`,
+  );
+  return roll < chanceA ? a : b;
+}
+
+function resolveFinalStandings(
+  state: GameState,
+  league: SecondTeamLeagueState,
+) {
+  const raw = buildRawStandings(league.results);
+  const regularResults = league.results.filter(
+    (r) => r.round >= 1 && r.round <= 18,
+  );
+  const base = [...raw].sort(
     (a, b) =>
       b.wins - a.wins ||
       b.setDiff - a.setDiff ||
-      headToHead(b.team, a.team) ||
+      getHeadToHeadScore(regularResults, b.team, a.team),
+  );
+
+  const tiebreakers: SecondTeamTiebreakerResult[] = [];
+  for (let i = 0; i < base.length; ) {
+    let j = i + 1;
+    while (
+      j < base.length &&
+      base[j].wins === base[i].wins &&
+      base[j].setDiff === base[i].setDiff &&
+      getHeadToHeadScore(regularResults, base[i].team, base[j].team) === 0
+    )
+      j++;
+
+    if (j - i === 2) {
+      const left = base[i],
+        right = base[i + 1];
+      const winner = tiebreakWinner(state, league, left.team, right.team);
+      const loser = winner === left.team ? right.team : left.team;
+      if (winner === right.team) {
+        base[i] = right;
+        base[i + 1] = left;
+      }
+      tiebreakers.push({
+        teams: [left.team, right.team],
+        winner,
+        loser,
+        reason: "TIEBREAKER",
+      });
+    } else if (j - i > 2) {
+      // 다자 동률은 동일 조건 그룹 안에서 결정전 시드 점수로 순서를 확정한다.
+      const group = base
+        .slice(i, j)
+        .map((row) => ({
+          row,
+          score:
+            getLivingTeamPower(getLeagueTeam(league, row.team)) +
+            (stableNumber(
+              `TB-GROUP|${row.team}|${state.player.secondTeamSeason.year ?? 2027}|${state.player.secondTeamSeason.split ?? "SPRING"}`,
+            ) -
+              0.5) *
+              8,
+        }))
+        .sort((x, y) => y.score - x.score);
+      base.splice(i, j - i, ...group.map((x) => x.row));
+      for (let k = 1; k < group.length; k++) {
+        tiebreakers.push({
+          teams: [group[k - 1].row.team, group[k].row.team],
+          winner: group[k - 1].row.team,
+          loser: group[k].row.team,
+          reason: "TIEBREAKER",
+        });
+      }
+    }
+    i = j;
+  }
+  return { standings: base, tiebreakers };
+}
+
+function calculateLeagueStandings(results: SecondTeamLeagueMatchResult[]) {
+  const raw = buildRawStandings(results);
+  return raw.sort(
+    (a, b) =>
+      b.wins - a.wins ||
+      b.setDiff - a.setDiff ||
+      getHeadToHeadScore(results, b.team, a.team) ||
       LEAGUE_TEAM_META[b.team].power - LEAGUE_TEAM_META[a.team].power,
   );
+}
+
+function simulatePlayoffSeries(
+  state: GameState,
+  league: SecondTeamLeagueState,
+  stage: Exclude<SecondTeamPlayoffStage, "COMPLETE">,
+  teamA: SecondTeamLeagueTeamId,
+  teamB: SecondTeamLeagueTeamId,
+  bestOf: 3 | 5,
+): SecondTeamPlayoffSeries {
+  const need = Math.ceil(bestOf / 2);
+  let aWins = 0,
+    bWins = 0,
+    set = 1;
+  while (aWins < need && bWins < need) {
+    const pa = getLivingTeamPower(getLeagueTeam(league, teamA));
+    const pb = getLivingTeamPower(getLeagueTeam(league, teamB));
+    const chanceA = Math.max(0.18, Math.min(0.82, 0.5 + (pa - pb) * 0.038));
+    const roll = stableNumber(
+      `${state.player.secondTeamSeason.year ?? 2027}|${state.player.secondTeamSeason.split ?? "SPRING"}|PO|${stage}|${teamA}|${teamB}|S${set}`,
+    );
+    if (roll < chanceA) aWins++;
+    else bWins++;
+    set++;
+  }
+  return {
+    stage,
+    teamA,
+    teamB,
+    bestOf,
+    teamAWins: aWins,
+    teamBWins: bWins,
+    winner: aWins > bWins ? teamA : teamB,
+  };
+}
+
+function createAndResolvePlayoffs(
+  state: GameState,
+  league: SecondTeamLeagueState,
+): SecondTeamPlayoffState {
+  const final = resolveFinalStandings(state, league);
+  const seeds = final.standings.slice(0, 5).map((r) => r.team);
+  const series: SecondTeamPlayoffSeries[] = [];
+
+  const wc = simulatePlayoffSeries(
+    state,
+    league,
+    "WILDCARD",
+    seeds[3],
+    seeds[4],
+    3,
+  );
+  series.push(wc);
+  const r1 = simulatePlayoffSeries(
+    state,
+    league,
+    "ROUND1",
+    seeds[2],
+    wc.winner!,
+    5,
+  );
+  series.push(r1);
+  const r2 = simulatePlayoffSeries(
+    state,
+    league,
+    "ROUND2",
+    seeds[1],
+    r1.winner!,
+    5,
+  );
+  series.push(r2);
+  const fin = simulatePlayoffSeries(
+    state,
+    league,
+    "FINAL",
+    seeds[0],
+    r2.winner!,
+    5,
+  );
+  series.push(fin);
+
+  return {
+    qualifiedTeams: seeds,
+    seedOrder: seeds,
+    tiebreakers: final.tiebreakers,
+    currentStage: "COMPLETE",
+    series,
+    champion: fin.winner,
+    vortexQualified: seeds.includes("VORTEX"),
+    vortexEliminated: fin.winner !== "VORTEX",
+  };
+}
+
+function ensurePlayoffs(
+  state: GameState,
+  league: SecondTeamLeagueState,
+): SecondTeamLeagueState {
+  const completedRounds = new Set(
+    league.results
+      .filter((r) => r.round >= 1 && r.round <= 18)
+      .map((r) => r.round),
+  ).size;
+  if (completedRounds < 18 || league.playoffs) return league;
+  return { ...league, playoffs: createAndResolvePlayoffs(state, league) };
 }
 
 export interface LeagueStandingRow {
@@ -2722,7 +2958,17 @@ export function getSecondTeamLivingLeague(state: GameState) {
 
 export function getLeagueDashboard(state: GameState) {
   const league = getSecondTeamLeagueState(state);
-  const calculated = calculateLeagueStandings(league.results);
+  const regularComplete =
+    new Set(
+      league.results
+        .filter((result) => result.round >= 1 && result.round <= 18)
+        .map((result) => result.round),
+    ).size >= 18;
+  const resolved = regularComplete
+    ? resolveFinalStandings(state, league)
+    : null;
+  const calculated =
+    resolved?.standings ?? calculateLeagueStandings(league.results);
 
   const standings: LeagueStandingRow[] = calculated.map((row, index) => ({
     rank: index + 1,
@@ -2822,6 +3068,15 @@ export function getLeagueDashboard(state: GameState) {
     standings,
     kda,
     lane,
-    completedRounds: new Set(league.results.map((result) => result.round)).size,
+    completedRounds: new Set(
+      league.results
+        .filter((result) => result.round >= 1 && result.round <= 18)
+        .map((result) => result.round),
+    ).size,
+    regularSeasonComplete: regularComplete,
+    tiebreakers: league.playoffs?.tiebreakers ?? resolved?.tiebreakers ?? [],
+    playoffs:
+      league.playoffs ??
+      (regularComplete ? createAndResolvePlayoffs(state, league) : undefined),
   };
 }

@@ -60,6 +60,7 @@ export default function RankingsScreen() {
     [game],
   );
   if (!game || !data) return <SafeAreaView style={s.safe} />;
+  const playoffs = data.playoffs;
 
   const league = game.player.careerStage !== "ACADEMY";
   const startPad = schedule.length ? mondayIndex(schedule[0].weekday) : 0;
@@ -109,6 +110,70 @@ export default function RankingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={s.list}>
+        {tab === "LEAGUE" &&
+          league &&
+          data.regularSeasonComplete &&
+          playoffs && (
+            <View style={s.poCard}>
+              <View style={s.poHead}>
+                <View>
+                  <Text style={s.poKicker}>POSTSEASON</Text>
+                  <Text style={s.poTitle}>
+                    {playoffs.champion
+                      ? `${livingLeague.find((t) => t.id === playoffs.champion)?.name ?? playoffs.champion} 우승`
+                      : "플레이오프"}
+                  </Text>
+                </View>
+                <Text style={s.poStatus}>
+                  {playoffs.vortexQualified
+                    ? playoffs.champion === "VORTEX"
+                      ? "CHAMPION"
+                      : "TOP 5"
+                    : "탈락"}
+                </Text>
+              </View>
+              <Text style={s.poSeeds}>
+                진출 ·{" "}
+                {playoffs.seedOrder
+                  .map(
+                    (id, index) =>
+                      `${index + 1} ${livingLeague.find((t) => t.id === id)?.name.replace(" 2군", "") ?? id}`,
+                  )
+                  .join("  ·  ")}
+              </Text>
+              {playoffs.series.map((series) => (
+                <View key={series.stage} style={s.poSeries}>
+                  <Text style={s.poStage}>
+                    {series.stage === "WILDCARD"
+                      ? "WC"
+                      : series.stage === "ROUND1"
+                        ? "R1"
+                        : series.stage === "ROUND2"
+                          ? "R2"
+                          : "FINAL"}
+                  </Text>
+                  <Text style={s.poTeams}>
+                    {livingLeague
+                      .find((t) => t.id === series.teamA)
+                      ?.name.replace(" 2군", "") ?? series.teamA}
+                    {"  "}
+                    {series.teamAWins} : {series.teamBWins}
+                    {"  "}
+                    {livingLeague
+                      .find((t) => t.id === series.teamB)
+                      ?.name.replace(" 2군", "") ?? series.teamB}
+                  </Text>
+                  <Text style={s.poBo}>BO{series.bestOf}</Text>
+                </View>
+              ))}
+              {data.tiebreakers.length > 0 && (
+                <Text style={s.tbText}>
+                  타이브레이커 {data.tiebreakers.length}경기 반영
+                </Text>
+              )}
+            </View>
+          )}
+
         {tab === "LEAGUE" &&
           (league ? (
             data.standings.map((row) => (
@@ -521,4 +586,51 @@ const s = StyleSheet.create({
     fontWeight: "800",
     marginTop: 2,
   },
+  poCard: {
+    padding: 14,
+    borderRadius: 15,
+    backgroundColor: "#12171B",
+    borderWidth: 1,
+    borderColor: "#35451E",
+    marginBottom: 6,
+  },
+  poHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  poKicker: { color: LIME, fontSize: 8, fontWeight: "900", letterSpacing: 1 },
+  poTitle: { color: "#FFF", fontSize: 16, fontWeight: "900", marginTop: 3 },
+  poStatus: { color: LIME, fontSize: 10, fontWeight: "900" },
+  poSeeds: {
+    color: "#7D8992",
+    fontSize: 8,
+    fontWeight: "800",
+    lineHeight: 14,
+    marginBottom: 10,
+  },
+  poSeries: {
+    height: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#222A30",
+  },
+  poStage: { width: 42, color: LIME, fontSize: 9, fontWeight: "900" },
+  poTeams: {
+    flex: 1,
+    color: "#E8ECEE",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  poBo: {
+    width: 34,
+    color: "#6E7982",
+    fontSize: 8,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  tbText: { color: "#A8B16B", fontSize: 8, fontWeight: "800", marginTop: 8 },
 });

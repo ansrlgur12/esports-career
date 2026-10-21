@@ -143,9 +143,45 @@ export interface SecondTeamLeagueMatchResult {
   teamBSets: number;
 }
 
+export type SecondTeamPlayoffStage =
+  | "WILDCARD"
+  | "ROUND1"
+  | "ROUND2"
+  | "FINAL"
+  | "COMPLETE";
+
+export interface SecondTeamTiebreakerResult {
+  teams: SecondTeamLeagueTeamId[];
+  winner: SecondTeamLeagueTeamId;
+  loser: SecondTeamLeagueTeamId;
+  reason: "TIEBREAKER";
+}
+
+export interface SecondTeamPlayoffSeries {
+  stage: Exclude<SecondTeamPlayoffStage, "COMPLETE">;
+  teamA: SecondTeamLeagueTeamId;
+  teamB: SecondTeamLeagueTeamId;
+  bestOf: 3 | 5;
+  teamAWins: number;
+  teamBWins: number;
+  winner?: SecondTeamLeagueTeamId;
+}
+
+export interface SecondTeamPlayoffState {
+  qualifiedTeams: SecondTeamLeagueTeamId[];
+  seedOrder: SecondTeamLeagueTeamId[];
+  tiebreakers: SecondTeamTiebreakerResult[];
+  currentStage: SecondTeamPlayoffStage;
+  series: SecondTeamPlayoffSeries[];
+  champion?: SecondTeamLeagueTeamId;
+  vortexQualified: boolean;
+  vortexEliminated: boolean;
+}
+
 export interface SecondTeamLeagueState {
   results: SecondTeamLeagueMatchResult[];
   teams: SecondTeamLeagueTeam[];
+  playoffs?: SecondTeamPlayoffState;
 }
 
 export type SplitName = "SPRING" | "SUMMER";
