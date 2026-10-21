@@ -1288,6 +1288,7 @@ export function completeSecondTeamMatch(
     playerDeaths: number;
     playerAssists: number;
     performanceScore: number;
+    starterStats?: StarterSeriesStats;
   },
 ): GameState {
   const current = refreshRecovery(state);
@@ -1320,7 +1321,9 @@ export function completeSecondTeamMatch(
     assists: result.playerAssists,
     performanceScore: result.performanceScore,
     playerParticipated: true,
-  };
+    // 기존 저장 타입을 깨지 않고 matchHistory에 영속화한다.
+    starterStats: result.starterStats,
+  } as any;
 
   const wins = season.wins + (result.win ? 1 : 0);
   const losses = season.losses + (result.win ? 0 : 1);
@@ -1818,8 +1821,130 @@ function stableNumber(seedText: string): number {
   return (hash >>> 0) / 4294967295;
 }
 
+type StarterSeriesStats = {
+  sets: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  performanceScore: number;
+};
+
+function getRecordedStarterStats(record: unknown): StarterSeriesStats | null {
+  const raw = record as any;
+  const stats = raw?.starterStats;
+  if (!stats || typeof stats.sets !== "number" || stats.sets <= 0) return null;
+
+  return {
+    sets: Math.max(0, stats.sets ?? 0),
+    kills: Math.max(0, stats.kills ?? 0),
+    deaths: Math.max(0, stats.deaths ?? 0),
+    assists: Math.max(0, stats.assists ?? 0),
+    performanceScore: Math.max(0, Math.min(100, stats.performanceScore ?? 0)),
+  };
+}
+
+function getStarterSeasonSnapshot(state: GameState) {
+  const base = SECOND_TEAM_STARTERS[state.player.position];
+  const records = (state.player.secondTeamSeason?.matchHistory ?? [])
+    .map((record) => ({
+      record,
+      stats: getRecordedStarterStats(record),
+    }))
+    .filter((item) => item.stats != null) as {
+    record: unknown;
+    stats: StarterSeriesStats;
+  }[];
+
+  if (records.length === 0) {
+    return {
+      profile: base,
+      games: 0,
+      sets: 0,
+      kills: 0,
+      deaths: 0,
+      assists: 0,
+      recent: [] as StarterSeriesStats[],
+    };
+  }
+
+  const totals = records.reduce(
+    (acc, item) => ({
+      sets: acc.sets + item.stats.sets,
+      kills: acc.kills + item.stats.kills,
+      deaths: acc.deaths + item.stats.deaths,
+      assists: acc.assists + item.stats.assists,
+    }),
+    { sets: 0, kills: 0, deaths: 0, assists: 0 },
+  );
+
+  const recent = records.slice(-5).map((item) => item.stats);
+  const recentTotals = recent.reduce(
+    (acc, item) => ({
+      kills: acc.kills + item.kills,
+      deaths: acc.deaths + item.deaths,
+      assists: acc.assists + item.assists,
+      performance: acc.performance + item.performanceScore,
+    }),
+    { kills: 0, deaths: 0, assists: 0, performance: 0 },
+  );
+
+  const recentKda =
+    recentTotals.deaths === 0
+      ? recentTotals.kills + recentTotals.assists
+      : (recentTotals.kills + recentTotals.assists) / recentTotals.deaths;
+  const recentPerformance =
+    recent.length > 0 ? recentTotals.performance / recent.length : base.form;
+
+  // 폼은 최근 5시리즈 경기력, 코치 신뢰는 누적 출전과 최근 경기력을 반영한다.
+  const form = Math.max(
+    35,
+    Math.min(95, Math.round(base.form * 0.35 + recentPerformance * 0.65)),
+  );
+  const coachTrust = Math.max(
+    35,
+    Math.min(
+      95,
+      Math.round(
+        base.coachTrust +
+          (recentPerformance - 65) * 0.22 +
+          Math.min(8, totals.sets * 0.35),
+      ),
+    ),
+  );
+
+  return {
+    profile: {
+      ...base,
+      form,
+      coachTrust,
+      recentKda: Number(recentKda.toFixed(2)),
+    },
+    games: records.length,
+    ...totals,
+    recent,
+  };
+}
+
 export function getSecondTeamStarter(state: GameState) {
-  return SECOND_TEAM_STARTERS[state.player.position];
+  return getStarterSeasonSnapshot(state).profile;
+}
+
+export function getSecondTeamStarterSeasonStats(state: GameState) {
+  const snapshot = getStarterSeasonSnapshot(state);
+  const kda =
+    snapshot.deaths === 0
+      ? snapshot.kills + snapshot.assists
+      : (snapshot.kills + snapshot.assists) / snapshot.deaths;
+
+  return {
+    games: snapshot.games,
+    sets: snapshot.sets,
+    kills: snapshot.kills,
+    deaths: snapshot.deaths,
+    assists: snapshot.assists,
+    kda,
+    recentSets: snapshot.recent.reduce((sum, item) => sum + item.sets, 0),
+  };
 }
 
 export function getSecondTeamCompetition(
@@ -1946,7 +2071,12 @@ export function decideSecondTeamNextSetRole(
 
 export function completeObservedSecondTeamMatch(
   state: GameState,
-  watchedResult?: { win: boolean; teamKills?: number; enemyKills?: number },
+  watchedResult?: {
+    win: boolean;
+    teamKills?: number;
+    enemyKills?: number;
+    starterStats?: StarterSeriesStats;
+  },
 ) {
   const current = refreshRecovery(state);
   const season = current.player.secondTeamSeason;
@@ -1981,7 +2111,8 @@ export function completeObservedSecondTeamMatch(
     assists: 0,
     performanceScore: 0,
     playerParticipated: false,
-  };
+    starterStats: watchedResult?.starterStats,
+  } as any;
   const next: GameState = {
     ...current,
     slot: "AFTERNOON",
@@ -1999,7 +2130,6 @@ export function completeObservedSecondTeamMatch(
       },
       stamina: Math.max(0, current.player.stamina - 5),
       stress: Math.min(100, current.player.stress + (win ? 0 : 1)),
-      starterCompetition: Math.min(100, current.player.starterCompetition + 1),
     },
   };
   const scoreText =

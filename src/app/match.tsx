@@ -49,6 +49,12 @@ export default function MatchScreen() {
   const [seriesPlayerAssists, setSeriesPlayerAssists] = useState(0);
   const [seriesPerformanceTotal, setSeriesPerformanceTotal] = useState(0);
   const [seriesPlayedSets, setSeriesPlayedSets] = useState(0);
+  const [seriesStarterSets, setSeriesStarterSets] = useState(0);
+  const [seriesStarterKills, setSeriesStarterKills] = useState(0);
+  const [seriesStarterDeaths, setSeriesStarterDeaths] = useState(0);
+  const [seriesStarterAssists, setSeriesStarterAssists] = useState(0);
+  const [seriesStarterPerformanceTotal, setSeriesStarterPerformanceTotal] =
+    useState(0);
   const [match, setMatch] = useState<ScrimState | null>(null);
   const [choiceMessage, setChoiceMessage] = useState<string | null>(null);
   const choiceResultOpacity = useRef(new Animated.Value(1)).current;
@@ -240,6 +246,14 @@ export default function MatchScreen() {
       setSeriesPlayerDeaths((value) => value + result.playerDeaths);
       setSeriesPlayerAssists((value) => value + result.playerAssists);
       setSeriesPerformanceTotal((value) => value + result.performanceScore);
+    } else {
+      setSeriesStarterSets((value) => value + 1);
+      setSeriesStarterKills((value) => value + result.playerKills);
+      setSeriesStarterDeaths((value) => value + result.playerDeaths);
+      setSeriesStarterAssists((value) => value + result.playerAssists);
+      setSeriesStarterPerformanceTotal(
+        (value) => value + result.performanceScore,
+      );
     }
 
     const nextSetNumber = setNumber + 1;
@@ -297,12 +311,38 @@ export default function MatchScreen() {
       seriesPlayerAssists + (playedThisSet ? result.playerAssists : 0);
     const totalPerformance =
       seriesPerformanceTotal + (playedThisSet ? result.performanceScore : 0);
+
+    const starterPlayedThisSet = isSecondTeamOfficial && !playerInSet;
+    const totalStarterSets = seriesStarterSets + (starterPlayedThisSet ? 1 : 0);
+    const totalStarterKills =
+      seriesStarterKills + (starterPlayedThisSet ? result.playerKills : 0);
+    const totalStarterDeaths =
+      seriesStarterDeaths + (starterPlayedThisSet ? result.playerDeaths : 0);
+    const totalStarterAssists =
+      seriesStarterAssists + (starterPlayedThisSet ? result.playerAssists : 0);
+    const totalStarterPerformance =
+      seriesStarterPerformanceTotal +
+      (starterPlayedThisSet ? result.performanceScore : 0);
+    const starterStats =
+      totalStarterSets > 0
+        ? {
+            sets: totalStarterSets,
+            kills: totalStarterKills,
+            deaths: totalStarterDeaths,
+            assists: totalStarterAssists,
+            performanceScore: Math.round(
+              totalStarterPerformance / totalStarterSets,
+            ),
+          }
+        : undefined;
+
     const seriesWin = finalTeamWins > finalEnemyWins;
 
     const next =
       isSecondTeamOfficial && totalPlayedSets === 0
         ? completeObservedSecondTeamMatch(game, {
             win: seriesWin,
+            starterStats,
           }).state
         : isSecondTeamOfficial
           ? completeSecondTeamMatch(game, {
@@ -313,6 +353,7 @@ export default function MatchScreen() {
               performanceScore: Math.round(
                 totalPerformance / Math.max(1, totalPlayedSets),
               ),
+              starterStats,
             })
           : isAcademyEvaluation
             ? completeAcademyEvaluation(game, {

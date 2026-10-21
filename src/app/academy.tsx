@@ -10,12 +10,14 @@ import {
 } from "react-native";
 
 import {
+    calculateOvr,
     getAcademyRank,
     getAcademyStandings,
     getPositionStandings,
     getPromotionChanceLabel,
     getSecondTeamCallupCandidates,
     getSecondTeamCompetition,
+    getSecondTeamStarterSeasonStats,
 } from "../game/engine";
 import { loadGame } from "../storage/db";
 import { GameState } from "../types/game";
@@ -66,6 +68,7 @@ export default function AcademyScreen() {
     const season = game.player.secondTeamSeason;
     const stats = game.player.seasonStats;
     const competition = getSecondTeamCompetition(game);
+    const starterSeason = getSecondTeamStarterSeasonStats(game);
     const appearances = (season.matchHistory ?? []).filter(
       (match) => match.playerParticipated,
     ).length;
@@ -145,26 +148,7 @@ export default function AcademyScreen() {
                 <Text style={styles.competitorName}>{game.player.name}</Text>
                 <Text style={styles.competitorMeta}>
                   {game.player.position} · OVR{" "}
-                  {Math.round(
-                    game.player.stats.physical * 0.05 +
-                      game.player.stats.reaction * 0.05 +
-                      game.player.stats.accuracy * 0.05 +
-                      game.player.stats.movement * 0.05 +
-                      game.player.stats.focus * 0.05 +
-                      game.player.stats.laning * 0.08 +
-                      game.player.stats.cs * 0.06 +
-                      game.player.stats.killSense * 0.06 +
-                      game.player.stats.survival * 0.05 +
-                      game.player.stats.champPool * 0.05 +
-                      game.player.stats.macro * 0.08 +
-                      game.player.stats.vision * 0.05 +
-                      game.player.stats.decision * 0.08 +
-                      game.player.stats.objective * 0.05 +
-                      game.player.stats.teamfight * 0.08 +
-                      game.player.stats.calling * 0.04 +
-                      game.player.stats.synergy * 0.04 +
-                      game.player.stats.mental * 0.03,
-                  )}
+                  {calculateOvr(game.player.stats, game.player.position)}
                 </Text>
               </View>
               <Text style={styles.competitionScore}>
@@ -189,6 +173,11 @@ export default function AcademyScreen() {
                 <Text style={styles.competitorMeta}>
                   최근 KDA {competition.starter.recentKda.toFixed(2)}
                   {" · "}코치 신뢰 {competition.starter.coachTrust}
+                </Text>
+                <Text style={styles.competitorMeta}>
+                  시즌 {starterSeason.sets}세트 · {starterSeason.kills}/
+                  {starterSeason.deaths}/{starterSeason.assists}
+                  {" · "}KDA {starterSeason.kda.toFixed(2)}
                 </Text>
               </View>
               <Text style={styles.competitionScore}>
