@@ -145,7 +145,7 @@ export interface PlayerState {
   name: string;
   position: Position;
   age: number;
-  careerStage: "TRAINEE" | "ACADEMY";
+  careerStage: "ACADEMY" | "SECOND_TEAM" | "FIRST_TEAM";
   avatar: AvatarState;
   stats: Stats;
   xp: StatXp;
@@ -165,7 +165,7 @@ export interface PlayerState {
 }
 
 export interface GameState {
-  version: 7;
+  version: 8;
   date: string;
   slot: TimeSlot;
   player: PlayerState;

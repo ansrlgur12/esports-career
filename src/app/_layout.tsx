@@ -11,7 +11,9 @@ export default function RootLayout() {
       <View style={styles.content}>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
+          <Stack.Screen name="home" />
           <Stack.Screen name="create" />
+          <Stack.Screen name="prologue" />
         </Stack>
       </View>
 

@@ -50,7 +50,7 @@ export default function MatchScreen() {
           dayType !== "SCRIM" &&
           dayType !== "ACADEMY_MATCH"
         ) {
-          router.replace("/");
+          router.replace("/home");
           return;
         }
 
@@ -147,7 +147,7 @@ export default function MatchScreen() {
             playerAssists: result.playerAssists,
           });
     await saveGame(next);
-    router.replace("/");
+    router.replace("/home");
   }
 
   if (match.finished && match.result) {
@@ -157,7 +157,7 @@ export default function MatchScreen() {
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.resultScreen}>
           <Text style={styles.kicker}>
-            {isAcademyOfficial ? "ACADEMY LEAGUE" : "SCRIM COMPLETE"}
+            {isAcademyOfficial ? "SECOND TEAM LEAGUE" : "SCRIM COMPLETE"}
           </Text>
           <Text style={styles.resultHeadline}>
             {r.win
@@ -171,7 +171,7 @@ export default function MatchScreen() {
 
           <View style={styles.scoreCard}>
             <Text style={styles.teamName}>
-              {isAcademyOfficial ? "우리 ACADEMY" : "우리 연습생팀"}
+              {isAcademyOfficial ? "우리 2군" : "우리 ACADEMY"}
             </Text>
             <Text style={styles.finalScore}>
               {r.teamKills} : {r.enemyKills}
@@ -306,7 +306,7 @@ export default function MatchScreen() {
               ? "ACADEMY LEAGUE · OFFICIAL"
               : isRegularScrim
                 ? "TEAM SCRIM"
-                : "TRAINEE EVALUATION · MONTHLY"}
+                : "ACADEMY EVALUATION · MONTHLY"}
           </Text>
           <Text style={styles.headerTitle}>
             {isAcademyOfficial
@@ -325,7 +325,7 @@ export default function MatchScreen() {
         <View style={styles.scoreboard}>
           <View style={styles.team}>
             <Text style={styles.teamName}>
-              {isAcademyOfficial ? "우리 ACADEMY" : "우리 연습생팀"}
+              {isAcademyOfficial ? "우리 2군" : "우리 ACADEMY"}
             </Text>
             <Text style={styles.teamScore}>{match.teamKills}</Text>
           </View>

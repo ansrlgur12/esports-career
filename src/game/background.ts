@@ -18,9 +18,11 @@ export function getMainBackground(game: GameState, dayType: string) {
 
   // 정기 스크림 → 현재 연습실 (토요일이어도 집보다 우선)
   if (morningEventPending && dayType === "SCRIM") {
-    return game.player.careerStage === "ACADEMY"
-      ? BACKGROUNDS.PRACTICE.ACADEMY
-      : BACKGROUNDS.PRACTICE.TRAINEE;
+    return game.player.careerStage === "SECOND_TEAM"
+      ? BACKGROUNDS.PRACTICE.SUB
+      : game.player.careerStage === "FIRST_TEAM"
+        ? BACKGROUNDS.PRACTICE.PRO[game.slot]
+        : BACKGROUNDS.PRACTICE.ACADEMY;
   }
 
   // 나머지 주말 → 집
@@ -29,9 +31,11 @@ export function getMainBackground(game: GameState, dayType: string) {
   }
 
   // 평일 → 현재 단계 연습실
-  if (game.player.careerStage === "ACADEMY") {
-    return BACKGROUNDS.PRACTICE.ACADEMY;
+  if (game.player.careerStage === "FIRST_TEAM") {
+    return BACKGROUNDS.PRACTICE.PRO[game.slot];
   }
-
-  return BACKGROUNDS.PRACTICE.TRAINEE;
+  if (game.player.careerStage === "SECOND_TEAM") {
+    return BACKGROUNDS.PRACTICE.SUB;
+  }
+  return BACKGROUNDS.PRACTICE.ACADEMY;
 }

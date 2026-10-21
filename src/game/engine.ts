@@ -117,15 +117,17 @@ export function getDayType(
 
   if (weekday === "SUN") return "REST";
 
-  if (careerStage === "TRAINEE") {
-    // 월간 평가는 매월 첫 번째 월요일 1회.
+  if (careerStage === "ACADEMY") {
+    // 아카데미 월간 평가는 매월 첫 번째 월요일 1회.
     if (weekday === "MON" && dayOfMonth <= 7) return "EVALUATION";
 
-    // 정기 스크림은 평가와 별도로 매주 수요일/토요일.
+    // 아카데미 정기 스크림은 수요일/토요일.
     if (weekday === "WED" || weekday === "SAT") return "SCRIM";
   }
 
-  if (careerStage === "ACADEMY" && weekday === "SAT") return "ACADEMY_MATCH";
+  // 2군부터 토요일 공식 리그 경기.
+  if (careerStage === "SECOND_TEAM" && weekday === "SAT")
+    return "ACADEMY_MATCH";
 
   return "TRAINING";
 }
@@ -174,7 +176,7 @@ export function getAcademyMatchInfo(state: GameState) {
 
 export function getUpcomingSchedule(state: GameState) {
   if (
-    state.player.careerStage === "TRAINEE" &&
+    state.player.careerStage === "ACADEMY" &&
     state.player.academyPromotionReady
   ) {
     const weekday = getWeekday(state.date);
@@ -184,7 +186,7 @@ export function getUpcomingSchedule(state: GameState) {
       weekdayLabel: weekdayLabels[weekday],
       dayType: "PROMOTION" as const,
       daysAway: 0,
-      title: "아카데미 콜업",
+      title: "2군 콜업",
     };
   }
 
@@ -214,7 +216,7 @@ export function getUpcomingSchedule(state: GameState) {
         daysAway,
         title:
           dayType === "EVALUATION"
-            ? "월간 연습생 평가"
+            ? "월간 아카데미 평가"
             : dayType === "SCRIM"
               ? "팀 스크림"
               : `아카데미 리그 ${academy.round}R vs ${academy.opponent.name}`,
@@ -513,7 +515,7 @@ export function newGame(
   });
 
   return {
-    version: 7,
+    version: 8,
     date: "2027-01-01",
     slot: "MORNING",
     actionSeed: 1,
@@ -525,7 +527,7 @@ export function newGame(
       name: name.trim() || "ROOKIE",
       position,
       age: 17,
-      careerStage: "TRAINEE",
+      careerStage: "ACADEMY",
       avatar: { ...avatar },
       stats,
       xp,
@@ -596,7 +598,7 @@ export function migrateGame(raw: any): GameState {
   return refreshRecovery({
     ...base,
     ...raw,
-    version: 7,
+    version: 8,
     recovery: raw?.recovery ?? base.recovery,
     player: {
       ...base.player,
@@ -604,12 +606,20 @@ export function migrateGame(raw: any): GameState {
       avatar: normalizeAvatar(raw?.player?.avatar),
       age: raw?.player?.age ?? 17,
       careerStage:
-        raw?.player?.careerStage === "ACADEMY" ? "ACADEMY" : "TRAINEE",
+        raw?.player?.careerStage === "FIRST_TEAM"
+          ? "FIRST_TEAM"
+          : raw?.player?.careerStage === "SECOND_TEAM" ||
+              raw?.player?.careerStage === "ACADEMY"
+            ? "SECOND_TEAM"
+            : "ACADEMY",
       coachTrust: raw?.player?.coachTrust ?? 0,
       starterCompetition: raw?.player?.starterCompetition ?? 0,
       annualSalary:
         raw?.player?.annualSalary ??
-        (raw?.player?.careerStage === "ACADEMY" ? 36000000 : 24000000),
+        (raw?.player?.careerStage === "ACADEMY" ||
+        raw?.player?.careerStage === "SECOND_TEAM"
+          ? 36000000
+          : 24000000),
       morningEventCompletedDate: raw?.player?.morningEventCompletedDate ?? null,
       seasonStats,
       academySeason,
@@ -1041,9 +1051,9 @@ export function completeTraineeScrim(
   };
 }
 
-export function promoteToAcademy(state: GameState): GameState {
+export function promoteToSecondTeam(state: GameState): GameState {
   if (
-    state.player.careerStage !== "TRAINEE" ||
+    state.player.careerStage !== "ACADEMY" ||
     !state.player.academyPromotionReady
   ) {
     return state;
@@ -1054,7 +1064,7 @@ export function promoteToAcademy(state: GameState): GameState {
     actionSeed: state.actionSeed + 211,
     player: {
       ...state.player,
-      careerStage: "ACADEMY",
+      careerStage: "SECOND_TEAM",
       academyPromotionReady: false,
       annualSalary: Math.max(state.player.annualSalary ?? 24000000, 36000000),
       starterCompetition: Math.max(10, state.player.starterCompetition),

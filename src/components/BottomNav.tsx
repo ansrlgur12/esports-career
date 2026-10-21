@@ -6,24 +6,24 @@ const LIME = "#C8FF37";
 type NavItem = {
   label: string;
   icon: string;
-  path: "/" | "/player" | "/trainee";
+  path: "/" | "/home" | "/player" | "/academy";
   active: (pathname: string) => boolean;
 };
 
 const ITEMS: NavItem[] = [
-  { label: "홈", icon: "⌂", path: "/", active: (p) => p === "/" },
+  { label: "홈", icon: "⌂", path: "/home", active: (p) => p === "/home" },
   { label: "OVR", icon: "◎", path: "/player", active: (p) => p === "/player" },
   {
     label: "커리어",
     icon: "▤",
-    path: "/trainee",
-    active: (p) => p === "/trainee" || p === "/academy",
+    path: "/academy",
+    active: (p) => p === "/academy" || p === "/academy",
   },
   {
     label: "메뉴",
     icon: "≡",
     path: "/",
-    active: () => false,
+    active: (p) => p === "/",
   },
 ];
 
@@ -31,7 +31,13 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   // 경기/캐릭터 생성처럼 흐름을 중단하면 안 되는 화면에서는 숨긴다.
-  if (pathname === "/match" || pathname === "/create") return null;
+  if (
+    pathname === "/" ||
+    pathname === "/match" ||
+    pathname === "/create" ||
+    pathname === "/prologue"
+  )
+    return null;
 
   return (
     <View style={styles.nav}>
